@@ -22,7 +22,7 @@
 #define _EQ_H
 
 /* => support from 3 to 32 bands */
-#define EQ_NUM_BANDS 10
+#define EQ_NUM_BANDS 32
 
 struct eq_band_setting
 {
