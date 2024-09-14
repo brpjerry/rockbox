@@ -84,7 +84,7 @@ static void update_band_filter(int band, unsigned int fout)
 
     coef_gen(fp_div(setting->cutoff, fout, 32), setting->q ?: 1,
              setting->gain, filter);
-    eq_data.eq_lr = setting->lr;
+    eq_data.eq_lr[band] = setting->lr;
 }
 
 /* Resync all bands to a new DSP output frequency */
@@ -146,7 +146,7 @@ void dsp_set_eq_coefs(int band, const struct eq_band_setting *setting)
         eq_data.bands[band] = (uint8_t)find_first_set_bit(mask);
 
     eq_data.bands[band] = EQ_NUM_BANDS;
-    eq_data.eq_lr = setting->lr;
+    eq_data.eq_lr[band] = setting->lr;
 }
 
 /* Enable or disable the equalizer */
