@@ -310,7 +310,7 @@ void filter_process_lr(struct dsp_filter *f, int32_t * const buf[], int count,
        where y[] is output and x[] is input.
      */
     unsigned int shift = f->shift;
-    if (lr == 3){
+    if (lr == 2){
         for (unsigned int c = 0; c < channels; c++) {
             for (int i = 0; i < count; i++) {
                 long long acc = (long long) buf[c][i] * f->coefs[0];
