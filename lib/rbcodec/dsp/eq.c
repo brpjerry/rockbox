@@ -146,7 +146,6 @@ void dsp_set_eq_coefs(int band, const struct eq_band_setting *setting)
         eq_data.bands[band] = (uint8_t)find_first_set_bit(mask);
 
     eq_data.bands[band] = EQ_NUM_BANDS;
-    eq_data.eq_lr[band] = setting->lr;
 }
 
 /* Enable or disable the equalizer */
@@ -169,11 +168,14 @@ static void eq_process(struct dsp_proc_entry *this,
                        struct dsp_buffer **buf_p)
 {
     struct dsp_buffer *buf = *buf_p;
+    int clr = 0;
     int count = buf->remcount;
     unsigned int channels = buf->format.num_channels;
-
     FOR_EACH_ENB_BAND(b)
+    {
         filter_process_lr(&eq_data.filters[*b], buf->p32, count, channels, eq_data.eq_lr[*b]);
+        clr++;
+    }
 
     (void)this;
 }

@@ -244,7 +244,7 @@ static void selection_to_banditem(int selection, int expanded_band, int *band, i
         *item = 0;
         *band = selection;
     }
-    else if (diff < 4)
+    else if (diff < 5)
     {
         *item = selection - expanded_band;
         *band = expanded_band;
@@ -252,7 +252,7 @@ static void selection_to_banditem(int selection, int expanded_band, int *band, i
     else
     {
         *item = 0;
-        *band = expanded_band + diff - 3;
+        *band = expanded_band + diff - 4;
     }
 }
 
