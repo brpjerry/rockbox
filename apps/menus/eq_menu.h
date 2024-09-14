@@ -36,6 +36,10 @@
 #define EQ_Q_MAX             64
 #define EQ_Q_STEP             1
 #define EQ_Q_FAST_STEP       10
+#define EQ_LR_MIN             0
+#define EQ_LR_MAX             2
+#define EQ_LR_STEP            1
+#define EQ_LR_FAST_STEP       1
 
 #define EQ_USER_DIVISOR      10
 

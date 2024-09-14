@@ -51,6 +51,8 @@ void filter_copy(struct dsp_filter *dst, const struct dsp_filter *src);
 void filter_flush(struct dsp_filter *f);
 void filter_process(struct dsp_filter *f, int32_t * const buf[], int count,
                     unsigned int channels);
+void filter_process_lr(struct dsp_filter *f, int32_t * const buf[], int count,
+                    unsigned int channels, uint8_t lr);
 /* ring buffer */
 void enqueue(int32_t var, int32_t* buffer, int *head, int boundary);
 int32_t dequeue(int32_t* buffer, int *head, int boundary);

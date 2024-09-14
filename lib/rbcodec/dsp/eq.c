@@ -51,6 +51,7 @@ static struct eq_state
     uint32_t enabled;                        /* Mask of enabled bands */
     uint8_t bands[EQ_NUM_BANDS+1];           /* Indexes of enabled bands */
     struct dsp_filter filters[EQ_NUM_BANDS]; /* Data for each filter */
+    uint8_t eq_lr[EQ_NUM_BANDS];
 } eq_data IBSS_ATTR;
 
 #define FOR_EACH_ENB_BAND(b) \
@@ -83,6 +84,7 @@ static void update_band_filter(int band, unsigned int fout)
 
     coef_gen(fp_div(setting->cutoff, fout, 32), setting->q ?: 1,
              setting->gain, filter);
+    eq_data.eq_lr = setting->lr;
 }
 
 /* Resync all bands to a new DSP output frequency */
@@ -144,6 +146,7 @@ void dsp_set_eq_coefs(int band, const struct eq_band_setting *setting)
         eq_data.bands[band] = (uint8_t)find_first_set_bit(mask);
 
     eq_data.bands[band] = EQ_NUM_BANDS;
+    eq_data.eq_lr = setting->lr;
 }
 
 /* Enable or disable the equalizer */
@@ -170,7 +173,7 @@ static void eq_process(struct dsp_proc_entry *this,
     unsigned int channels = buf->format.num_channels;
 
     FOR_EACH_ENB_BAND(b)
-        filter_process(&eq_data.filters[*b], buf->p32, count, channels);
+        filter_process_lr(&eq_data.filters[*b], buf->p32, count, channels, eq_data.eq_lr[*b]);
 
     (void)this;
 }

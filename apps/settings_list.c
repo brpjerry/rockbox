@@ -567,16 +567,16 @@ static int32_t get_precut_talkid(int value, int unit)
 }
 
 struct eq_band_setting eq_defaults[EQ_NUM_BANDS] = {
-    { 32, 7, 0 },
-    { 64, 10, 0 },
-    { 125, 10, 0 },
-    { 250, 10, 0 },
-    { 500, 10, 0 },
-    { 1000, 10, 0 },
-    { 2000, 10, 0 },
-    { 4000, 10, 0 },
-    { 8000, 10, 0 },
-    { 16000, 7, 0 },
+    { 32, 7, 0 , 3},
+    { 64, 10, 0 , 3},
+    { 125, 10, 0 , 3},
+    { 250, 10, 0 , 3},
+    { 500, 10, 0 , 3},
+    { 1000, 10, 0 , 3},
+    { 2000, 10, 0 , 3},
+    { 4000, 10, 0 , 3},
+    { 8000, 10, 0 , 3},
+    { 16000, 7, 0 , 3},
 };
 
 static void eq_load_from_cfg(void *setting, char *value)
@@ -603,14 +603,22 @@ static void eq_load_from_cfg(void *setting, char *value)
     /* gain */
     value = end + 1;
     if (value > val_end) return;
+    end = strchr(value, ',');
+    if (!end) return;
+    *end = '\0';
     eq->gain = atoi(value);
+
+    /* lr */
+    value = end + 1;
+    if (value > val_end) return;
+    eq->lr = atoi(value);
 }
 
 static char* eq_write_to_cfg(void *setting, char *buf, int buf_len)
 {
     struct eq_band_setting *eq = setting;
 
-    snprintf(buf, buf_len, "%d, %d, %d", eq->cutoff, eq->q, eq->gain);
+    snprintf(buf, buf_len, "%d, %d, %d, %d", eq->cutoff, eq->q, eq->gain, eq->lr);
     return buf;
 }
 
@@ -1732,7 +1740,29 @@ const struct settings_list settings[] = {
     EQ_BAND(6, "eq peak filter 6"),
     EQ_BAND(7, "eq peak filter 7"),
     EQ_BAND(8, "eq peak filter 8"),
-    EQ_BAND(9, "eq high shelf filter"),
+    EQ_BAND(9, "eq peak filter 9"),
+    EQ_BAND(10, "eq peak filter 10"),
+    EQ_BAND(11, "eq peak filter 11"),
+    EQ_BAND(12, "eq peak filter 12"),
+    EQ_BAND(13, "eq peak filter 13"),
+    EQ_BAND(14, "eq peak filter 14"),
+    EQ_BAND(15, "eq peak filter 15"),
+    EQ_BAND(16, "eq peak filter 16"),
+    EQ_BAND(17, "eq peak filter 17"),
+    EQ_BAND(18, "eq peak filter 18"),
+    EQ_BAND(19, "eq peak filter 19"),
+    EQ_BAND(20, "eq peak filter 20"),
+    EQ_BAND(21, "eq peak filter 21"),
+    EQ_BAND(22, "eq peak filter 22"),
+    EQ_BAND(23, "eq peak filter 23"),
+    EQ_BAND(24, "eq peak filter 24"),
+    EQ_BAND(25, "eq peak filter 25"),
+    EQ_BAND(26, "eq peak filter 26"),
+    EQ_BAND(27, "eq peak filter 27"),
+    EQ_BAND(28, "eq peak filter 28"),
+    EQ_BAND(29, "eq peak filter 29"),
+    EQ_BAND(30, "eq peak filter 30"),
+    EQ_BAND(31, "eq high shelf filter"),
 #undef EQ_BAND
 
     /* dithering */

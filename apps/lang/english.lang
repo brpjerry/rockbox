@@ -1147,6 +1147,20 @@
   </voice>
 </phrase>
 <phrase>
+  id: LANG_EQUALIZER_LR
+  desc: in the equalizer settings menu
+  user: core
+  <source>
+    *: "LR"
+  </source>
+  <dest>
+    *: "LR"
+  </dest>
+  <voice>
+    *: "LR"
+  </voice>
+</phrase>
+<phrase>
   id: LANG_DITHERING
   desc: in the sound settings and some other menus
   user: core

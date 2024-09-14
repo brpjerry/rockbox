@@ -302,6 +302,46 @@ void filter_process(struct dsp_filter *f, int32_t * const buf[], int count,
         }
     }
 }
+void filter_process_lr(struct dsp_filter *f, int32_t * const buf[], int count,
+                    unsigned int channels, uint8_t lr)
+{
+    /* Direct form 1 filtering code.
+       y[n] = b0*x[i] + b1*x[i - 1] + b2*x[i - 2] + a1*y[i - 1] + a2*y[i - 2],
+       where y[] is output and x[] is input.
+     */
+    unsigned int shift = f->shift;
+    if (lr == 3){
+        for (unsigned int c = 0; c < channels; c++) {
+            for (int i = 0; i < count; i++) {
+                long long acc = (long long) buf[c][i] * f->coefs[0];
+                acc += (long long) f->history[c][0] * f->coefs[1];
+                acc += (long long) f->history[c][1] * f->coefs[2];
+                acc += (long long) f->history[c][2] * f->coefs[3];
+                acc += (long long) f->history[c][3] * f->coefs[4];
+                f->history[c][1] = f->history[c][0];
+                f->history[c][0] = buf[c][i];
+                f->history[c][3] = f->history[c][2];
+                buf[c][i] = (acc << shift) >> 32;
+                f->history[c][2] = buf[c][i];
+            }
+        }
+    } else {
+        int c = lr;
+        for (int i = 0; i < count; i++) {
+                long long acc = (long long) buf[c][i] * f->coefs[0];
+                acc += (long long) f->history[c][0] * f->coefs[1];
+                acc += (long long) f->history[c][1] * f->coefs[2];
+                acc += (long long) f->history[c][2] * f->coefs[3];
+                acc += (long long) f->history[c][3] * f->coefs[4];
+                f->history[c][1] = f->history[c][0];
+                f->history[c][0] = buf[c][i];
+                f->history[c][3] = f->history[c][2];
+                buf[c][i] = (acc << shift) >> 32;
+                f->history[c][2] = buf[c][i];
+        }
+    }
+
+}
 #endif /* CPU */
 
 /* ring buffer */

@@ -181,6 +181,16 @@ static const struct int_setting cutoff_int_setting = {
     .get_talk_id = NULL,
 };
 
+static const struct int_setting cutoff_int_setting = {
+    .option_callback = NULL,
+    .unit = UNIT_INT,
+    .step = EQ_CUTOFF_STEP,
+    .min = EQ_CUTOFF_MIN,
+    .max = EQ_CUTOFF_MAX,
+    .formatter = NULL,
+    .get_talk_id = NULL,
+};
+
 static int simplelist_action_callback(int action, struct gui_synclist *lists)
 {
     (void)lists;
@@ -281,6 +291,9 @@ static char *advancedmenu_item_get_name(int selected_item, void *data, char *buf
     case 3: /* Gain */
         lang = LANG_GAIN;
         break;
+    case 4: /* LR */
+        lang = LANG_EQUALIZER_BAND_LR;
+        break;
     }
 
     if(lang < 0)
@@ -329,6 +342,9 @@ static int advancedmenu_speak_item(int selected_item, void *data)
         break;
     case 3: /* Gain */
         lang = LANG_GAIN;
+        break;
+    case 4: /* LR */
+        lang = LANG_EQUALIZER_BAND_LR;
         break;
     }
     talk_id(lang, true);
@@ -415,6 +431,12 @@ static int eq_do_advanced_menu(void * param)
                 setting.int_setting = &gain_int_setting;
                 setting.setting = &global_settings.eq_band_settings[band].gain;
                 break;
+            case 4: /* LR */
+                setting.lang_id = LANG_LR;
+                setting.default_val.int_ = eq_defaults[band].lr;
+                setting.int_setting = &lr_int_setting;
+                setting.setting = &global_settings.eq_band_settings[band].lr;
+                break;
         }
         pcmbuf_set_low_latency(true);
         advancedmenu_item_get_name(info.selection, &selected_band, title, MAX_PATH);
@@ -432,6 +454,7 @@ enum eq_slider_mode {
     GAIN,
     CUTOFF,
     Q,
+    LR,
 };
 
 enum eq_type {
@@ -445,7 +468,7 @@ enum eq_type {
 
 /* Draw the UI for a whole EQ band */
 static int draw_eq_slider(struct screen * screen, int x, int y,
-    int width, int cutoff, int q, int gain, bool selected,
+    int width, int cutoff, int q, int gain, int lr, bool selected,
     enum eq_slider_mode mode, int band)
 {
     char buf[26];
@@ -464,6 +487,11 @@ static int draw_eq_slider(struct screen * screen, int x, int y,
         steps = EQ_CUTOFF_MAX - EQ_CUTOFF_MIN;
         min_item = cutoff - EQ_CUTOFF_FAST_STEP * 2;
         max_item = cutoff + EQ_CUTOFF_FAST_STEP * 2;
+        break;
+    case LR:
+        steps = EQ_LR_MAX - EQ_LR_MIN;
+        min_item = lr - EQ_LR_STEP - EQ_LR_MIN;
+        max_item = lr + EQ_LR_STEP - EQ_LR_MIN;
         break;
     case GAIN:
     default:
@@ -503,6 +531,17 @@ static int draw_eq_slider(struct screen * screen, int x, int y,
     snprintf(buf, sizeof(buf), "%s%2d.%d%s", gain < 0 ? "-" : " ",
         abs_gain / EQ_USER_DIVISOR, abs_gain % EQ_USER_DIVISOR,
         screen->lcdwidth >= 160 ? "dB" : "");
+    screen->putsxy(x1, y1, buf);
+    w = screen->getstringsize(buf, NULL, NULL);
+    x1 += 2*w;
+
+    /* Print out LR part of status line (left justify after label) */
+    if (mode == LR && selected)
+        screen->set_drawmode(DRMODE_SOLID | DRMODE_INVERSEVID);
+    else
+        screen->set_drawmode(DRMODE_SOLID);
+
+    snprintf(buf, sizeof(buf), "%1d%s", lr);
     screen->putsxy(x1, y1, buf);
     w = screen->getstringsize(buf, NULL, NULL);
     x1 += w;
@@ -559,13 +598,14 @@ static void draw_eq_sliders(struct screen * screen, int x, int y,
         int cutoff = setting->cutoff;
         int q      = setting->q;
         int gain   = setting->gain;
+        int lr     = setting->lr;
 
         if (i == start_item + nb_eq_sliders)
             break;
 
         if (i >= start_item) {
             height += draw_eq_slider(screen, x, height, screen->lcdwidth - x - 1,
-                                     cutoff, q, gain, i == current_band, mode,
+                                     cutoff, q, gain, lr, i == current_band, mode,
                                      i);
             /* add a margin */
             height++;
@@ -650,6 +690,17 @@ int eq_menu_graphical(void)
 
                 screens[i].putsxyf(0, 0, str(LANG_SYSFONT_EQUALIZER_EDIT_MODE),
                          str(LANG_SYSFONT_EQUALIZER_BAND_CUTOFF), "(Hz)");
+            } else if (mode == LR) {
+                /* LR */
+                setting = &global_settings.eq_band_settings[current_band].lr;
+
+                step = EQ_LR_STEP;
+                fast_step = EQ_LR_FAST_STEP;
+                min = EQ_LR_MIN;
+                max = EQ_LR_MAX;
+
+                screens[i].putsxyf(0, 0, str(LANG_SYSFONT_EQUALIZER_EDIT_MODE),
+                         str(LANG_SYSFONT_EQUALIZER_BAND_LR), "");
             } else {
                 /* Q */
                 setting = &global_settings.eq_band_settings[current_band].q;
