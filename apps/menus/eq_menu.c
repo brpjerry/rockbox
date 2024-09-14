@@ -403,7 +403,7 @@ static int eq_do_advanced_menu(void * param)
                 }
                 else
                 {
-                    extra = 3;
+                    extra = 4;
                     selected_band = band;
                 }
                 info.selection = band;
@@ -452,9 +452,9 @@ MENUITEM_FUNCTION(advanced_menu, 0, ID2P(LANG_EQUALIZER_ADVANCED),
 
 enum eq_slider_mode {
     GAIN,
+    LR,
     CUTOFF,
     Q,
-    LR,
 };
 
 enum eq_type {
