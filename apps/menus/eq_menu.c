@@ -181,12 +181,12 @@ static const struct int_setting cutoff_int_setting = {
     .get_talk_id = NULL,
 };
 
-static const struct int_setting cutoff_int_setting = {
+static const struct int_setting lr_int_setting = {
     .option_callback = NULL,
     .unit = UNIT_INT,
-    .step = EQ_CUTOFF_STEP,
-    .min = EQ_CUTOFF_MIN,
-    .max = EQ_CUTOFF_MAX,
+    .step = EQ_LR_STEP,
+    .min = EQ_LR_MIN,
+    .max = EQ_LR_MAX,
     .formatter = NULL,
     .get_talk_id = NULL,
 };
@@ -432,7 +432,7 @@ static int eq_do_advanced_menu(void * param)
                 setting.setting = &global_settings.eq_band_settings[band].gain;
                 break;
             case 4: /* LR */
-                setting.lang_id = LANG_LR;
+                setting.lang_id = LANG_EQUALIZER_BAND_LR;
                 setting.default_val.int_ = eq_defaults[band].lr;
                 setting.int_setting = &lr_int_setting;
                 setting.setting = &global_settings.eq_band_settings[band].lr;
@@ -541,7 +541,7 @@ static int draw_eq_slider(struct screen * screen, int x, int y,
     else
         screen->set_drawmode(DRMODE_SOLID);
 
-    snprintf(buf, sizeof(buf), "%1d%s", lr);
+    snprintf(buf, sizeof(buf), "%1d", lr);
     screen->putsxy(x1, y1, buf);
     w = screen->getstringsize(buf, NULL, NULL);
     x1 += w;

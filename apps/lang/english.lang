@@ -1147,7 +1147,7 @@
   </voice>
 </phrase>
 <phrase>
-  id: LANG_EQUALIZER_LR
+  id: LANG_EQUALIZER_BAND_LR
   desc: in the equalizer settings menu
   user: core
   <source>
@@ -8864,6 +8864,20 @@
   </dest>
   <voice>
     *: "Cutoff Frequency"
+  </voice>
+</phrase>
+<phrase>
+  id: LANG_SYSFONT_EQUALIZER_BAND_LR
+  desc: in the equalizer settings menu
+  user: core
+  <source>
+    *: "LR"
+  </source>
+  <dest>
+    *: "LR"
+  </dest>
+  <voice>
+    *: "LR"
   </voice>
 </phrase>
 <phrase>
