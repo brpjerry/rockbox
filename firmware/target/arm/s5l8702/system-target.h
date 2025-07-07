@@ -23,11 +23,19 @@
 
 #include "system-arm.h"
 #include "mmu-arm.h"
+#include "cpucache-arm.h"
 
 #define CPUFREQ_SLEEP   32768
+
+#if (CONFIG_CPU == S5L8702)
 #define CPUFREQ_MAX     216000000
 #define CPUFREQ_DEFAULT 54000000
 #define CPUFREQ_NORMAL  54000000
+#elif (CONFIG_CPU == S5L8720)
+#define CPUFREQ_MAX     266000000
+#define CPUFREQ_DEFAULT 133000000
+#define CPUFREQ_NORMAL  133000000
+#endif
 
 #define STORAGE_WANTS_ALIGN
 

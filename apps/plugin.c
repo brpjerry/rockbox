@@ -86,6 +86,8 @@ static void* plugin_get_audio_buffer(size_t *buffer_size);
 static void plugin_release_audio_buffer(void);
 static void plugin_tsr(int (*exit_callback)(bool));
 
+extern struct battery_tables_t device_battery_tables; /* powermgmt.c */
+
 #ifdef HAVE_PLUGIN_CHECK_OPEN_CLOSE
 /* File handle leak prophylaxis */
 #include "bitarray.h"
@@ -182,7 +184,6 @@ static const struct plugin_api rockbox_api = {
     language_strings,
     &core_bitmaps[0],
     /* lcd */
-    splash,
     splashf,
     splash_progress,
     splash_progress_set_delay,
@@ -249,7 +250,7 @@ static const struct plugin_api rockbox_api = {
     lcd_set_mode,
 #endif
 #if defined(HAVE_LCD_ENABLE) || defined(HAVE_LCD_SLEEP)
-    &button_queue,
+    button_queue_post,
 #endif
     bidi_l2v,
     is_diacritic,
@@ -410,7 +411,7 @@ static const struct plugin_api rockbox_api = {
     storage_sleep,
     STORAGE_FUNCTION(spin),
     STORAGE_FUNCTION(spindown),
-#if USING_STORAGE_CALLBACK
+#ifdef USING_STORAGE_CALLBACK
     register_storage_idle_func,
     unregister_storage_idle_func,
 #endif /* USING_STORAGE_CALLBACK */
@@ -448,6 +449,7 @@ static const struct plugin_api rockbox_api = {
     talk_idarray,
     talk_file,
     talk_file_or_spell,
+    talk_fullpath,
     talk_dir_or_spell,
     talk_number,
     talk_value_decimal,
@@ -460,7 +462,7 @@ static const struct plugin_api rockbox_api = {
     talk_force_enqueue_next,
 
     /* kernel/ system */
-#if defined(CPU_ARM) && CONFIG_PLATFORM & PLATFORM_NATIVE
+#if defined(ARM_NEED_DIV0)
     __div0,
 #endif
     sleep,
@@ -840,8 +842,9 @@ static const struct plugin_api rockbox_api = {
 
     /* new stuff at the end, sort into place next time
        the API gets incompatible */
-
-    talk_fullpath,
+    add_playbacklog,
+    &device_battery_tables,
+    yesno_pop_confirm,
 };
 
 static int plugin_buffer_handle;
@@ -858,10 +861,20 @@ int plugin_load(const char* plugin, const void* parameter)
 
     /* for some plugins, the SBS can be left enabled */
     const char *sepch = strrchr(plugin, PATH_SEPCH);
-    bool theme_enabled = sepch && !strcmp("properties.rock", sepch + 1);
+    bool theme_enabled = sepch && (!strcmp("properties.rock", sepch + 1) ||
+                                   !strcmp("main_menu_config.rock", sepch + 1) ||
+                                   !strcmp("disktidy.rock", sepch + 1));
 
-    if (current_plugin_handle && pfn_tsr_exit)
-    {    /* if we have a resident old plugin and a callback */
+    if (current_plugin_handle)
+    {
+        if (!pfn_tsr_exit)
+        {
+            /* not allowing another plugin to load */
+            logf("Attempt to load plugin `%s` while another non-TSR plugin `%s` is running.", plugin, current_plugin);
+            return PLUGIN_OK;
+        }
+
+        /* if we have a resident old plugin and a callback */
         bool reenter = (strcmp(current_plugin, plugin) == 0);
         int exit_status = pfn_tsr_exit(reenter);
         if (exit_status == PLUGIN_TSR_CONTINUE)
@@ -905,16 +918,16 @@ int plugin_load(const char* plugin, const void* parameter)
 #endif
         )
     {
-        lc_close(current_plugin_handle);
-        splash(HZ*2, ID2P(LANG_PLUGIN_WRONG_MODEL));
-        return -1;
+        hdr = NULL;
     }
 
-    if (hdr->api_version != PLUGIN_API_VERSION ||
+    if (hdr == NULL || hdr->api_version != PLUGIN_API_VERSION ||
         p_hdr->api_size > sizeof(struct plugin_api))
     {
         lc_close(current_plugin_handle);
-        splash(HZ*2, ID2P(LANG_PLUGIN_WRONG_VERSION));
+        current_plugin_handle = NULL;
+        splash(HZ*2, hdr ? ID2P(LANG_PLUGIN_WRONG_VERSION)
+                         : ID2P(LANG_PLUGIN_WRONG_MODEL));
         return -1;
     }
 
@@ -941,7 +954,9 @@ int plugin_load(const char* plugin, const void* parameter)
         push_current_activity(ACTIVITY_PLUGIN);
     /* some plugins assume the entry cache doesn't move and save pointers to it
      * they should be fixed properly instead of this lock */
-    tree_lock_cache(tree_get_context());
+    struct tree_context *tc = tree_get_context();
+    tree_lock_cache(tc);
+    int *last_dirfilter_p = tc->dirfilter; /* store incoming dirfilter pointer */
 
     if (!theme_enabled)
         FOR_NB_SCREENS(i)
@@ -957,9 +972,11 @@ int plugin_load(const char* plugin, const void* parameter)
 
     plugin_check_open_close__enter();
 
-    int rc = p_hdr->entry_point(parameter);
+    int rc = p_hdr->entry_point(parameter); /* run the loaded plugin */
 
-    tree_unlock_cache(tree_get_context());
+    /* unlock the tree and restore the dirfilter pointer */
+    tree_unlock_cache(tc);
+    tc->dirfilter = last_dirfilter_p;
 
     pop_current_activity_without_refresh();
     if (get_current_activity() != ACTIVITY_WPS)
@@ -1019,7 +1036,7 @@ int plugin_load(const char* plugin, const void* parameter)
 
     plugin_check_open_close__exit();
 
-    status_save();
+    status_save(false);
 
     if (rc == PLUGIN_ERROR)
         splash(HZ*2, str(LANG_PLUGIN_ERROR));

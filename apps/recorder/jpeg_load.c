@@ -26,7 +26,7 @@
 * KIND, either express or implied.
 *
 ****************************************************************************/
-
+#include "metadata_common.h"
 #include "plugin.h"
 #include "debug.h"
 #include "jpeg_load.h"
@@ -41,6 +41,11 @@
 #define JDEBUGF DEBUGF
 #else
 #define JDEBUGF(...)
+#endif
+
+#if (__GNUC__ >= 6)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wshift-negative-value"
 #endif
 
 /**************** begin JPEG code ********************/
@@ -79,6 +84,10 @@ struct jpeg
     int fd;
     int buf_left;
     int buf_index;
+
+    int (*read_buf)(struct jpeg* p_jpeg, size_t count);
+    bool (*skip_bytes_seek)(struct jpeg* p_jpeg);
+    void* custom_param;
 #endif
     unsigned long len;
     unsigned long int bitbuf;
@@ -872,15 +881,55 @@ INLINE void jpeg_putc(struct jpeg* p_jpeg)
     p_jpeg->data--;
 }
 #else
+
+static int read_buf(struct jpeg* p_jpeg, size_t count)
+{
+    return read(p_jpeg->fd, p_jpeg->buf, count);
+}
+
 INLINE void fill_buf(struct jpeg* p_jpeg)
 {
-        p_jpeg->buf_left = read(p_jpeg->fd, p_jpeg->buf,
-                                (p_jpeg->len >= JPEG_READ_BUF_SIZE)?
-                                     JPEG_READ_BUF_SIZE : p_jpeg->len);
-        p_jpeg->buf_index = 0;
-        if (p_jpeg->buf_left > 0)
-            p_jpeg->len -= p_jpeg->buf_left;
+    p_jpeg->buf_left = p_jpeg->read_buf(p_jpeg, MIN(JPEG_READ_BUF_SIZE, p_jpeg->len));
+    p_jpeg->buf_index = 0;
+    if (p_jpeg->buf_left > 0)
+        p_jpeg->len -= p_jpeg->buf_left;
 }
+
+#ifdef HAVE_ALBUMART
+static int read_buf_id3_unsync(struct jpeg* p_jpeg, size_t count)
+{
+    count = read(p_jpeg->fd, p_jpeg->buf, count);
+    return id3_unsynchronize(p_jpeg->buf, count, (bool*) &p_jpeg->custom_param);
+}
+
+static int read_buf_vorbis_base64(struct jpeg* p_jpeg, size_t count)
+{
+    struct ogg_file* ogg = p_jpeg->custom_param;
+    unsigned char* buf = p_jpeg->buf;
+    count = ogg_file_read(ogg, buf, count);
+    if (count == (size_t) -1)
+        return 0;
+
+    return base64_decode(buf, count, buf);
+}
+
+/* when pjpeg->read_buf involves additional data processing (like base64 decoding)
+ * we can't use lseek and have to call pjpeg->read_buf for proper seek */
+static bool skip_bytes_read_buf(struct jpeg* p_jpeg)
+{
+    do
+    {
+        int count = -p_jpeg->buf_left;
+        fill_buf(p_jpeg);
+        if (p_jpeg->buf_left < 0)
+            return false;
+        p_jpeg->buf_left -= count;
+        p_jpeg->buf_index += count;
+    } while (p_jpeg->buf_left < 0);
+    return true;
+}
+
+#endif /* HAVE_ALBUMART */
 
 static unsigned char *jpeg_getc(struct jpeg* p_jpeg)
 {
@@ -892,7 +941,7 @@ static unsigned char *jpeg_getc(struct jpeg* p_jpeg)
     return (p_jpeg->buf_index++) + p_jpeg->buf;
 }
 
-INLINE bool skip_bytes_seek(struct jpeg* p_jpeg)
+static bool skip_bytes_seek(struct jpeg* p_jpeg)
 {
     if (UNLIKELY(lseek(p_jpeg->fd, -p_jpeg->buf_left, SEEK_CUR) < 0))
         return false;
@@ -904,7 +953,7 @@ static bool skip_bytes(struct jpeg* p_jpeg, int count)
 {
     p_jpeg->buf_left -= count;
     p_jpeg->buf_index += count;
-    return p_jpeg->buf_left >= 0 || skip_bytes_seek(p_jpeg);
+    return p_jpeg->buf_left >= 0 || p_jpeg->skip_bytes_seek(p_jpeg);
 }
 
 static void jpeg_putc(struct jpeg* p_jpeg)
@@ -944,8 +993,9 @@ static int process_markers(struct jpeg* p_jpeg)
     int ret = 0; /* returned flags */
     bool done = false;
 
-    while (!done && (c = e_getc(p_jpeg, -1)))
+    while (!done)
     {
+        c = e_getc(p_jpeg, -1);
         if (c != 0xFF) /* no marker? */
         {
             JDEBUGF("Non-marker data\n");
@@ -1957,7 +2007,7 @@ int clip_jpeg_file(const char* filename,
         return fd * 10 - 1;
     }
     lseek(fd, offset, SEEK_SET);
-    ret = clip_jpeg_fd(fd, jpeg_size, bm, maxsize, format, cformat);
+    ret = clip_jpeg_fd(fd, 0, jpeg_size, bm, maxsize, format, cformat);
     close(fd);
     return ret;
 }
@@ -2006,7 +2056,7 @@ int get_jpeg_dim_mem(unsigned char *data, unsigned long len,
 
 int decode_jpeg_mem(unsigned char *data,
 #else
-int clip_jpeg_fd(int fd,
+int clip_jpeg_fd(int fd, int flags,
 #endif
                  unsigned long len,
                  struct bitmap *bm,
@@ -2037,6 +2087,44 @@ int clip_jpeg_fd(int fd,
     p_jpeg->fd = fd;
     if (p_jpeg->len == 0)
         p_jpeg->len = filesize(p_jpeg->fd);
+
+    p_jpeg->read_buf = read_buf;
+    p_jpeg->skip_bytes_seek = skip_bytes_seek;
+
+#ifdef HAVE_ALBUMART
+    if (flags & AA_FLAG_ID3_UNSYNC)
+    {
+        p_jpeg->read_buf = read_buf_id3_unsync;
+        p_jpeg->custom_param = false;
+    }
+    else if (flags & AA_FLAG_VORBIS_BASE64)
+    {
+        struct ogg_file* ogg = alloca(sizeof(*ogg));
+        off_t pic_pos = lseek(fd, 0, SEEK_CUR);
+
+        // we need 92 bytes for format probing, reuse some available space
+        unsigned char* buf_format = (unsigned char*) p_jpeg->quanttable;
+        int type = get_ogg_format_and_move_to_comments(fd, buf_format);
+
+        ogg_file_init(ogg, fd, type, 0);
+        bool packet_found;
+        do
+        {
+            int seek_from_cur_pos = pic_pos - lseek(fd, 0, SEEK_CUR);
+            packet_found = seek_from_cur_pos <= ogg->packet_remaining;
+            if (ogg_file_read(ogg, NULL, packet_found ? seek_from_cur_pos : ogg->packet_remaining) < 0)
+                return -1;
+        }
+        while (!packet_found);
+
+        p_jpeg->read_buf = read_buf_vorbis_base64;
+        p_jpeg->skip_bytes_seek = skip_bytes_read_buf;
+        p_jpeg->custom_param = ogg;
+    }
+#else
+    (void)flags;
+#endif /* HAVE_ALBUMART */
+
 #endif
     status = process_markers(p_jpeg);
 #ifndef JPEG_FROM_MEM
@@ -2127,21 +2215,22 @@ int clip_jpeg_fd(int fd,
         bm_size = cformat->get_size(bm);
     else
         bm_size = BM_SIZE(bm->width,bm->height,FORMAT_NATIVE,false);
-    if (bm_size > maxsize)
-        return -1;
+
     char *buf_start = (char *)bm->data + bm_size;
     char *buf_end = (char *)bm->data + maxsize;
-    maxsize = buf_end - buf_start;
+    bool return_size = format & FORMAT_RETURN_SIZE;
 #ifndef JPEG_FROM_MEM
     ALIGN_BUFFER(buf_start, maxsize, sizeof(long));
-    if (maxsize < (int)sizeof(struct jpeg))
-        return -1;
-    memmove(buf_start, p_jpeg, sizeof(struct jpeg));
-    p_jpeg = (struct jpeg *)buf_start;
+    if (!return_size)
+    {
+        if (maxsize < (int)sizeof(struct jpeg))
+            return -1;
+        memmove(buf_start, p_jpeg, sizeof(struct jpeg));
+        p_jpeg = (struct jpeg *)buf_start;
+    }
     buf_start += sizeof(struct jpeg);
-    maxsize = buf_end - buf_start;
 #endif
-    fix_huff_tables(p_jpeg);
+    maxsize = buf_end - buf_start;
 #ifdef HAVE_LCD_COLOR
     int decode_buf_size = (p_jpeg->x_mbl << p_jpeg->h_scale[1])
         << p_jpeg->v_scale[1];
@@ -2153,9 +2242,27 @@ int clip_jpeg_fd(int fd,
 #endif
     decode_buf_size *= JPEG_PIX_SZ;
     JDEBUGF("decode buffer size: %d\n", decode_buf_size);
-    p_jpeg->img_buf = (jpeg_pix_t *)buf_start;
+    if (return_size)
+    {
+        return (buf_start - (char *) bm->data) + decode_buf_size
+               + (resize
+                      ?
+                      /* buffer for 1 line + 2 spare lines */
+#ifdef HAVE_LCD_COLOR
+                      sizeof(struct uint32_argb)
+#else
+                      sizeof(uint32_t)
+#endif
+                      * 3 * bm->width
+                      : 0);
+    }
+
     if (buf_end - buf_start < decode_buf_size)
         return -1;
+
+    fix_huff_tables(p_jpeg);
+
+    p_jpeg->img_buf = (jpeg_pix_t *)buf_start;
     buf_start += decode_buf_size;
     maxsize = buf_end - buf_start;
     memset(p_jpeg->img_buf, 0, decode_buf_size);
@@ -2224,7 +2331,7 @@ int read_jpeg_fd(int fd,
                  int format,
                  const struct custom_format *cformat)
 {
-    return clip_jpeg_fd(fd, 0, bm, maxsize, format, cformat);
+    return clip_jpeg_fd(fd, 0, 0, bm, maxsize, format, cformat);
 }
 #endif
 

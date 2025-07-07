@@ -73,6 +73,13 @@ struct menu_data_t
     int selected;
 };
 
+static int empty_menu_callback(int action, const struct menu_item_ex *this_item, struct gui_synclist *this_list)
+{
+    return action;
+    (void)this_item;
+    (void)this_list;
+}
+
 static void get_menu_callback(const struct menu_item_ex *m,
                         menu_callback_type *menu_callback)
 {
@@ -80,6 +87,9 @@ static void get_menu_callback(const struct menu_item_ex *m,
         *menu_callback= m->callback_and_desc->menu_callback;
     else
         *menu_callback = m->menu_callback;
+
+    if (!*menu_callback)
+        *menu_callback = &empty_menu_callback;
 }
 
 static bool query_audio_status(int *old_audio_status)
@@ -201,7 +211,7 @@ static int init_menu_lists(const struct menu_item_ex *menu,
     int start_action = ACTION_ENTER_MENUITEM;
     int count = MIN(MENU_GET_COUNT(menu->flags), MAX_MENU_SUBITEMS);
     int type = (menu->flags&MENU_TYPE_MASK);
-    menu_callback_type menu_callback = NULL;
+    menu_callback_type menu_callback = &empty_menu_callback;
     int icon;
     char * title;
     current_subitems_count = 0;
@@ -213,17 +223,10 @@ static int init_menu_lists(const struct menu_item_ex *menu,
     {
         if (type != MT_RETURN_ID)
             get_menu_callback(menu->submenus[i],&menu_callback);
-        if (menu_callback)
-        {
-            if (menu_callback(ACTION_REQUEST_MENUITEM,
-                type==MT_RETURN_ID ? (void*)(intptr_t)i: menu->submenus[i], lists)
-                    != ACTION_EXIT_MENUITEM)
-            {
-                current_subitems[current_subitems_count] = i;
-                current_subitems_count++;
-            }
-        }
-        else
+
+        if (menu_callback(ACTION_REQUEST_MENUITEM,
+            type==MT_RETURN_ID ? (void*)(intptr_t)i: menu->submenus[i], lists)
+                != ACTION_EXIT_MENUITEM)
         {
             current_subitems[current_subitems_count] = i;
             current_subitems_count++;
@@ -263,7 +266,7 @@ static int init_menu_lists(const struct menu_item_ex *menu,
     gui_synclist_select_item(lists, find_menu_selection(selected));
 
     get_menu_callback(menu,&menu_callback);
-    if (callback && menu_callback)
+    if (callback)
         start_action = menu_callback(start_action, menu, lists);
 
     return start_action;
@@ -402,10 +405,10 @@ int do_menu(const struct menu_item_ex *start_menu, int *start_selected,
     int stack_top = 0;
 
     struct viewport *vps = NULL;
-    menu_callback_type menu_callback = NULL;
+    menu_callback_type menu_callback = &empty_menu_callback;
 
     /* if hide_theme is true, assume parent has been fixed before passed into
-     * this function, e.g. with viewport_set_defaults(parent, screen) 
+     * this function, e.g. with viewport_set_defaults(parent, screen)
      * start_action allows an action to be processed
      * by menu logic by bypassing get_action on the initial run */
     start_action = init_menu_lists(menu, &lists, selected, true, parent);
@@ -441,16 +444,13 @@ int do_menu(const struct menu_item_ex *start_menu, int *start_selected,
             action = gui_synclist_do_touchscreen(&lists);
 #endif
 
-        if (menu_callback)
-        {
-            int new_action = menu_callback(action, menu, &lists);
-            if (new_action == ACTION_EXIT_AFTER_THIS_MENUITEM)
-                ret = MENU_SELECTED_EXIT; /* exit after return from selection */
-            else if (new_action == ACTION_REDRAW)
-                redraw_lists = true;
-            else
-                action = new_action;
-        }
+        int new_action = menu_callback(action, menu, &lists);
+        if (new_action == ACTION_EXIT_AFTER_THIS_MENUITEM)
+            ret = MENU_SELECTED_EXIT; /* exit after return from selection */
+        else if (new_action == ACTION_REDRAW)
+            redraw_lists = true;
+        else
+            action = new_action;
 
         if (LIKELY(gui_synclist_do_button(&lists, &action)))
             continue;
@@ -513,29 +513,37 @@ int do_menu(const struct menu_item_ex *start_menu, int *start_selected,
 
                 if (type == MT_SETTING_W_TEXT || type == MT_SETTING)
                 {
-#ifdef HAVE_QUICKSCREEN
-                    MENUITEM_STRINGLIST(quickscreen_able_option,
+                    const struct menu_item_ex *context_menu;
+                    const struct settings_list *setting =
+                            find_setting(temp->variable);
+
+                    MENUITEM_STRINGLIST(settings_op_menu,
                                         ID2P(LANG_ONPLAY_MENU_TITLE), NULL,
                                         ID2P(LANG_RESET_SETTING),
+#ifndef HAVE_QUICKSCREEN
+                                       );
+                    context_menu = &settings_op_menu;
+#else
                                         ID2P(LANG_TOP_QS_ITEM),
                                         ID2P(LANG_LEFT_QS_ITEM),
                                         ID2P(LANG_BOTTOM_QS_ITEM),
                                         ID2P(LANG_RIGHT_QS_ITEM),
+                                        ID2P(LANG_ADD_CURRENT_TO_FAVES),
                                         ID2P(LANG_ADD_TO_FAVES));
-#endif
-                    MENUITEM_STRINGLIST(notquickscreen_able_option,
-                                        ID2P(LANG_ONPLAY_MENU_TITLE), NULL,
-                                        ID2P(LANG_RESET_SETTING));
-                    const struct menu_item_ex *context_menu;
-                    const struct settings_list *setting =
-                            find_setting(temp->variable);
-#ifdef HAVE_QUICKSCREEN
-                    if (is_setting_quickscreenable(setting))
-                        context_menu = &quickscreen_able_option;
-                    else
-#endif
-                        context_menu = &notquickscreen_able_option;
 
+                    /* re-use the strings and desc from the settings_op_menu */
+                    static const struct menu_item_ex non_quickscreen_op_menu =
+                    {MT_RETURN_ID|MENU_HAS_DESC|MENU_ITEM_COUNT(1),
+                    { .strings = settings_op_menu_},
+                    {.callback_and_desc = &settings_op_menu__}};
+
+                    if (is_setting_quickscreenable(setting))
+                        context_menu = &settings_op_menu;
+                    else
+                    {
+                        context_menu = &non_quickscreen_op_menu;
+                    }
+#endif
                     int msel = do_menu(context_menu, NULL, NULL, false);
 
                     switch (msel)
@@ -560,12 +568,19 @@ int do_menu(const struct menu_item_ex *start_menu, int *start_selected,
                         case 4: /* set as right QS item */
                             global_settings.qs_items[QUICKSCREEN_RIGHT] = setting;
                             break;
-                        case 5: /* Add to faves. Same limitation on which can be
+                        case 5: /* Add current value of setting to faves.
+                                   Same limitation on which can be
+                                   added to the shortcuts menu as the quickscreen */
+                            shortcuts_add(SHORTCUT_SETTING_APPLY, (void*)setting);
+                            break;
+                        case 6: /* Add to faves. Same limitation on which can be
                                   added to the shortcuts menu as the quickscreen */
                             shortcuts_add(SHORTCUT_SETTING, (void*)setting);
                             break;
 #endif
-                    } /* swicth(do_menu()) */
+                    } /* switch(do_menu()) */
+                    if (menu->flags & MENU_EXITAFTERTHISMENU)
+                        done = true; /* in case onplay menu contains setting */
                     redraw_lists = true;
                 }
             } /* else if (!in_stringlist) */
@@ -586,8 +601,7 @@ int do_menu(const struct menu_item_ex *start_menu, int *start_selected,
             bool exiting_menu = false;
             in_stringlist = false;
 
-            if (menu_callback)
-                menu_callback(ACTION_EXIT_MENUITEM, menu, &lists);
+            menu_callback(ACTION_EXIT_MENUITEM, menu, &lists);
 
             if (menu->flags&MENU_EXITAFTERTHISMENU)
                 done = true;
@@ -598,7 +612,7 @@ int do_menu(const struct menu_item_ex *start_menu, int *start_selected,
             {
                 stack_top--;
                 menu = mstack[stack_top].menu;
-                int msel = mstack[stack_top].selected; 
+                int msel = mstack[stack_top].selected;
                 if (!exiting_menu && (menu->flags&MENU_EXITAFTERTHISMENU))
                     done = true;
                 else
@@ -630,12 +644,9 @@ int do_menu(const struct menu_item_ex *start_menu, int *start_selected,
             {
                 type = (temp->flags&MENU_TYPE_MASK);
                 get_menu_callback(temp, &menu_callback);
-                if (menu_callback)
-                {
-                    action = menu_callback(ACTION_ENTER_MENUITEM, temp, &lists);
-                    if (action == ACTION_EXIT_MENUITEM)
-                        break;
-                }
+                action = menu_callback(ACTION_ENTER_MENUITEM, temp, &lists);
+                if (action == ACTION_EXIT_MENUITEM)
+                    break;
             }
             switch (type)
             {
@@ -715,8 +726,7 @@ int do_menu(const struct menu_item_ex *start_menu, int *start_selected,
             }
             if (type != MT_MENU)
             {
-                if (menu_callback)
-                    menu_callback(ACTION_EXIT_MENUITEM, temp, &lists);
+                menu_callback(ACTION_EXIT_MENUITEM, temp, &lists);
             }
             if (current_submenus_menu != menu)
                 init_menu_lists(menu,&lists,selected,true,vps);
@@ -750,9 +760,8 @@ int do_menu(const struct menu_item_ex *start_menu, int *start_selected,
 
         if (redraw_lists && !done)
         {
-            if (menu_callback)
-                if (menu_callback(ACTION_REDRAW, menu, &lists) != ACTION_REDRAW)
-                    continue;
+            if (menu_callback(ACTION_REDRAW, menu, &lists) != ACTION_REDRAW)
+                continue;
 
 
             gui_synclist_set_title(&lists, lists.title, lists.title_icon);
@@ -775,7 +784,10 @@ int do_menu(const struct menu_item_ex *start_menu, int *start_selected,
     }
 
     FOR_NB_SCREENS(i)
+    {
         viewportmanager_theme_undo(i, false);
+        skinlist_set_cfg(i, NULL); /* Bugfix dangling reference in skin_draw() */
+    }
 #ifdef HAVE_TOUCHSCREEN
     /* This is needed because this function runs the settings menu and we do
      * not want to switch back to the old mode if the user intentionally went

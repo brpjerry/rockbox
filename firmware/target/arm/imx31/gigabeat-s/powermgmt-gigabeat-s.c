@@ -30,25 +30,19 @@
 #include "power.h"
 #include "power-gigabeat-s.h"
 
-const unsigned short battery_level_dangerous[BATTERY_TYPES_COUNT] =
-{
-    3659
-};
+unsigned short battery_level_disksafe = 3659;
 
-const unsigned short battery_level_shutoff[BATTERY_TYPES_COUNT] =
-{
-    3630
-};
+unsigned short battery_level_shutoff = 3630;
 
 /* voltages (millivolt) of 0%, 10%, ... 100% when charging disabled */
-const unsigned short percent_to_volt_discharge[BATTERY_TYPES_COUNT][11] =
+unsigned short percent_to_volt_discharge[11] =
 {
     /* Toshiba Gigabeat S Li Ion 700mAH figured from discharge curve */
-    { 3659, 3719, 3745, 3761, 3785, 3813, 3856, 3926, 3984, 4040, 4121 },
+    3659, 3719, 3745, 3761, 3785, 3813, 3856, 3926, 3984, 4040, 4121
 };
 
 /* voltages (millivolt) of 0%, 10%, ... 100% when charging enabled */
-const unsigned short percent_to_volt_charge[11] =
+unsigned short percent_to_volt_charge[11] =
 {
     /* Toshiba Gigabeat S Li Ion 700mAH figured from charge curve */
     4028, 4063, 4087, 4111, 4135, 4156, 4173, 4185, 4194, 4202, 4208
@@ -109,7 +103,7 @@ int battery_adc_temp(void)
      * R[ohms] = E/I = E[volts] / 0.00002[A] (Thermistor bias current source)
      *
      * Steinhart-Hart thermistor equation:
-     * [A + B*ln(R) + D*ln^3(R)] = 1 / T[°K]
+     * [A + B*ln(R) + D*ln^3(R)] = 1 / T[Â°K]
      *
      * Coeffients that fit experimental data (one thermistor so far, one run):
      * A = 0.0013002631685462800

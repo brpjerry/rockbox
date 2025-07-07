@@ -486,6 +486,15 @@ CONFIG_KEYPAD == SANSA_M200_PAD
 #define MPEG_RW         BUTTON_LEFT
 #define MPEG_FF         BUTTON_RIGHT
 
+#elif CONFIG_KEYPAD == MA_PAD
+#define MPEG_MENU       BUTTON_MENU
+#define MPEG_STOP       BUTTON_BACK
+#define MPEG_PAUSE      BUTTON_PLAY
+#define MPEG_VOLDOWN    BUTTON_DOWN
+#define MPEG_VOLUP      BUTTON_UP
+#define MPEG_RW         BUTTON_LEFT
+#define MPEG_FF         BUTTON_RIGHT
+
 #elif CONFIG_KEYPAD == SHANLING_Q1_PAD
 /* use touchscreen */
 
@@ -1208,7 +1217,7 @@ static void osd_lcd_enable_hook(unsigned short id, void* param)
 {
     (void)id;
     (void)param;
-    rb->queue_post(rb->button_queue, LCD_ENABLE_EVENT_1, 0);
+    rb->button_queue_post(LCD_ENABLE_EVENT_1, 0);
 }
 #endif
 
@@ -1453,7 +1462,7 @@ static void osd_refresh_volume(void)
     char buf[32];
     int width;
 
-    int volume = rb->global_settings->volume;
+    int volume = rb->global_status->volume;
     rb->snprintf(buf, sizeof (buf), "%d%s",
                  rb->sound_val2phys(SOUND_VOLUME, volume),
                  rb->sound_unit(SOUND_VOLUME));
@@ -1861,7 +1870,7 @@ static int osd_stream_status(void)
 /* Change the current audio volume by a specified amount */
 static void osd_set_volume(int delta)
 {
-    int vol = rb->global_settings->volume;
+    int vol = rb->global_status->volume;
     int limit;
 
     vol += delta;
@@ -1879,9 +1888,9 @@ static void osd_set_volume(int delta)
     }
 
     /* Sync the global settings */
-    if (vol != rb->global_settings->volume) {
+    if (vol != rb->global_status->volume) {
         rb->sound_set(SOUND_VOLUME, vol);
-        rb->global_settings->volume = vol;
+        rb->global_status->volume = vol;
     }
 
     /* Update the volume display */

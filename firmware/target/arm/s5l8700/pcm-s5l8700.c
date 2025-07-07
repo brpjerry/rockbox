@@ -23,7 +23,7 @@
 #include "config.h"
 #include "system.h"
 #include "audio.h"
-#include "s5l8700.h"
+#include "s5l87xx.h"
 #include "panic.h"
 #include "audiohw.h"
 #include "pcm.h"
@@ -31,6 +31,7 @@
 #include "pcm_sampr.h"
 #include "dma-target.h"
 #include "mmu-arm.h"
+#include "cpucache-arm.h"
 
 /*  Driver for the IIS/PCM part of the s5l8700 using DMA
 

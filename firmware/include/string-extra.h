@@ -30,7 +30,7 @@
 #include "memset16.h"
 
 #if defined(WIN32) || defined(APPLICATION) \
-        || defined(__PCTOOL__)
+        || defined(__PCTOOL__) || defined(SIMULATOR)
 #ifndef mempcpy
 #define mempcpy __builtin_mempcpy
 #endif
@@ -69,5 +69,7 @@ static inline char * strmemcpy(char *dst, const char *src, size_t len)
        size_t __len = strlen(_s); \
        strmemdupa(__s, MIN(__n, __len)); })
 #endif /* strndupa */
+
+char *itoa_buf(char *buf, size_t bufsz, long int i);
 
 #endif /* STRING_EXTRA_H */

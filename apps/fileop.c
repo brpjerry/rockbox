@@ -85,7 +85,7 @@ static bool poll_cancel_action(int operation, struct file_op_params *param)
     {
         const char *op_str = (operation == FOC_DELETE) ? str(LANG_DELETING) :
                              (operation == FOC_COPY) ? str(LANG_COPYING) :
-                             str(LANG_MOVING); 
+                             str(LANG_MOVING);
 
         if ((operation == FOC_DELETE || !param->total_size) &&
             param->objects > 0)
@@ -510,7 +510,9 @@ int copy_move_fileobject(const char *src_path, const char *dst_path, unsigned in
         int rc;
         if (file_exists(dst.path)) {
             /* If user chooses not to overwrite, cancel */
-            if (confirm_overwrite_yesno() == YESNO_NO) {
+            if (!yesno_pop(ID2P(LANG_REALLY_OVERWRITE)))
+            {
+                splash(HZ, ID2P(LANG_CANCEL));
                 return FORC_NOOVERWRT;
             }
 
@@ -598,6 +600,9 @@ int delete_fileobject(const char *selected_file)
         rc = directory_fileop(&param, FOC_DELETE);
         cpu_boost(false);
     } else {
+        param.objects = param.processed = 1;
+        if (poll_cancel_action(FOC_DELETE, &param))
+            return FORC_CANCELLED;
         rc = remove(param.path) * 10;
     }
 
@@ -608,6 +613,7 @@ int rename_file(const char *selected_file)
 {
     int rc;
     char newname[MAX_PATH];
+    char *newext = NULL;
     const char *oldbase, *selection = selected_file;
 
     path_basename(selection, &oldbase);
@@ -617,10 +623,19 @@ int rename_file(const char *selected_file)
     if (strmemccpy(newname, selection, sizeof (newname)) == NULL)
         return FORC_PATH_TOO_LONG;
 
+    if ((*tree_get_context()->dirfilter > NUM_FILTER_MODES) &&
+        (newext = strrchr(newbase, '.')))
+        /* hide extension when renaming in lists restricted to a
+        single file format, such as in the Playlists menu */
+        *newext = '\0';
+
     rc = prompt_name(newbase, sizeof (newname) - pathlen);
 
     if (rc != FORC_SUCCESS)
         return rc;
+
+    if (newext) /* re-add original extension */
+        strlcat(newbase, strrchr(selection, '.'), sizeof (newname) - pathlen);
 
     if (!strcmp(oldbase, newbase))
         return FORC_NOOP; /* No change at all */

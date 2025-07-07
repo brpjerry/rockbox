@@ -357,7 +357,7 @@ void RbUtilQt::about()
 
 void RbUtilQt::help()
 {
-    QUrl helpurl("http://www.rockbox.org/wiki/RockboxUtility");
+    QUrl helpurl("https://www.rockbox.org/wiki/RockboxUtility");
     QDesktopServices::openUrl(helpurl);
 }
 
@@ -366,6 +366,7 @@ void RbUtilQt::configDialog()
 {
     Config *cw = new Config(this);
     connect(cw, &Config::settingsUpdated, this, &RbUtilQt::updateSettings);
+    connect(cw, &Config::settingsUpdated, selectiveinstallwidget, &SelectiveInstallWidget::installBootloaderHints);
     cw->show();
 }
 

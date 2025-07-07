@@ -46,6 +46,19 @@
 #undef strncmp
 #undef strchr
 #undef strtok_r
+#ifdef __APPLE__
+#undef strncpy
+#undef snprintf
+#undef strcpy
+#undef strcat
+#undef memset
+#undef memcpy
+#undef memmove
+#undef vsnprintf
+#undef vsprintf
+#endif
+
+#define splash(__ticks, __str) splashf(__ticks, __str)
 
 char* strncpy(char *, const char *, size_t);
 void* plugin_get_buffer(size_t *buffer_size);
@@ -163,7 +176,7 @@ int plugin_open(const char *plugin, const char *parameter);
  * when this happens please take the opportunity to sort in
  * any new functions "waiting" at the end of the list.
  */
-#define PLUGIN_API_VERSION 271
+#define PLUGIN_API_VERSION 273
 
 /* 239 Marks the removal of ARCHOS HWCODEC and CHARCELL */
 
@@ -200,7 +213,6 @@ struct plugin_api {
     const struct cbmp_bitmap_info_entry *core_bitmaps;
 
     /* lcd */
-    void (*splash)(int ticks, const char *str);
     void (*splashf)(int ticks, const char *fmt, ...) ATTRIBUTE_PRINTF(2, 3);
     void (*splash_progress)(int current, int total, const char *fmt, ...) ATTRIBUTE_PRINTF(3, 4);
     void (*splash_progress_set_delay)(long delay_ticks);
@@ -282,7 +294,7 @@ struct plugin_api {
 #endif
 
 #if defined(HAVE_LCD_ENABLE) || defined(HAVE_LCD_SLEEP)
-    struct event_queue *button_queue;
+    void (*button_queue_post)(long id, intptr_t data);
 #endif
     unsigned short *(*bidi_l2v)( const unsigned char *str, int orientation );
     bool (*is_diacritic)(const unsigned short char_code, bool *is_rtl);
@@ -463,7 +475,7 @@ struct plugin_api {
     void (*storage_sleep)(void);
     void (*storage_spin)(void);
     void (*storage_spindown)(int seconds);
-#if USING_STORAGE_CALLBACK
+#ifdef USING_STORAGE_CALLBACK
     void (*register_storage_idle_func)(void (*function)(void));
     void (*unregister_storage_idle_func)(void (*function)(void), bool run);
 #endif /* USING_STORAGE_CALLBACK */
@@ -502,7 +514,8 @@ struct plugin_api {
                                           void (*add_to_pl_cb));
     bool (*browse_id3)(struct mp3entry *id3,
                        int playlist_display_index, int playlist_amount,
-                       struct tm *modified, int track_ct);
+                       struct tm *modified, int track_ct,
+                       int (*view_text)(const char *title, const char *text));
 
     /* talking */
     int (*talk_id)(int32_t id, bool enqueue);
@@ -511,6 +524,7 @@ struct plugin_api {
                      const char *ext, const long *prefix_ids, bool enqueue);
     int (*talk_file_or_spell)(const char *dirname, const char* filename,
                               const long *prefix_ids, bool enqueue);
+    int (*talk_fullpath)(const char* path, bool enqueue);
     int (*talk_dir_or_spell)(const char* filename,
                              const long *prefix_ids, bool enqueue);
     int (*talk_number)(long n, bool enqueue);
@@ -524,7 +538,7 @@ struct plugin_api {
     void (*talk_force_enqueue_next)(void);
 
     /* kernel/ system */
-#if defined(CPU_ARM) && CONFIG_PLATFORM & PLATFORM_NATIVE
+#if defined(ARM_NEED_DIV0)
     void (*__div0)(void);
 #endif
     unsigned (*sleep)(unsigned ticks);
@@ -858,7 +872,7 @@ struct plugin_api {
     int (*settings_save)(void);
     bool (*option_screen)(const struct settings_list *setting,
                           struct viewport parent[NB_SCREENS],
-                          bool use_temp_var, unsigned char* option_title);
+                          bool use_temp_var, const unsigned char* option_title);
     bool (*set_option)(const char* string, const void* variable,
                        enum optiontype type, const struct opt_items* options,
                        int numoptions, void (*function)(int));
@@ -977,8 +991,9 @@ struct plugin_api {
 #endif
     /* new stuff at the end, sort into place next time
        the API gets incompatible */
-
-    int (*talk_fullpath)(const char* path, bool enqueue);
+    void (*add_playbacklog)(struct mp3entry *id3);
+    struct battery_tables_t *device_battery_tables;
+    bool (*yesno_pop_confirm)(const char* text);
 };
 
 /* plugin header */

@@ -256,7 +256,7 @@ const char *get_id3_token(struct wps_token *token, struct mp3entry *id3,
                 if (id3->disc_string)
                     return id3->disc_string;
                 if (id3->discnum) {
-                    snprintf(buf, buf_size, "%d", id3->discnum);
+                    itoa_buf(buf, buf_size, id3->discnum);
                     return buf;
                 }
                 return NULL;
@@ -264,7 +264,7 @@ const char *get_id3_token(struct wps_token *token, struct mp3entry *id3,
                 if (id3->track_string)
                     return id3->track_string;
                 if (id3->tracknum) {
-                    snprintf(buf, buf_size, "%d", id3->tracknum);
+                    itoa_buf(buf, buf_size, id3->tracknum);
                     return buf;
                 }
                 return NULL;
@@ -291,7 +291,7 @@ const char *get_id3_token(struct wps_token *token, struct mp3entry *id3,
                 if( id3->year_string )
                     return id3->year_string;
                 if (id3->year) {
-                    snprintf(buf, buf_size, "%d", id3->year);
+                    itoa_buf(buf, buf_size, id3->year);
                     return buf;
                 }
                 return NULL;
@@ -299,7 +299,7 @@ const char *get_id3_token(struct wps_token *token, struct mp3entry *id3,
                 return id3->comment;
             case SKIN_TOKEN_FILE_BITRATE:
                 if(id3->bitrate)
-                    snprintf(buf, buf_size, "%d", id3->bitrate);
+                    itoa_buf(buf, buf_size, id3->bitrate);
                 else
                     return "?";
                 return buf;
@@ -360,12 +360,12 @@ const char *get_id3_token(struct wps_token *token, struct mp3entry *id3,
                 return get_codectype(id3);
 
             case SKIN_TOKEN_FILE_FREQUENCY:
-                snprintf(buf, buf_size, "%ld", id3->frequency);
+                itoa_buf(buf, buf_size, id3->frequency);
                 return buf;
             case SKIN_TOKEN_FILE_FREQUENCY_KHZ:
                 /* ignore remainders < 100, so 22050 Hz becomes just 22k */
                 if ((id3->frequency % 1000) < 100)
-                    snprintf(buf, buf_size, "%ld", id3->frequency / 1000);
+                    itoa_buf(buf, buf_size, id3->frequency / 1000);
                 else
                     snprintf(buf, buf_size, "%ld.%lu",
                             id3->frequency / 1000,
@@ -374,24 +374,24 @@ const char *get_id3_token(struct wps_token *token, struct mp3entry *id3,
             case SKIN_TOKEN_FILE_VBR:
                 return (id3->vbr) ? "(avg)" : NULL;
             case SKIN_TOKEN_FILE_SIZE:
-                snprintf(buf, buf_size, "%ld", id3->filesize / 1024);
+                itoa_buf(buf, buf_size, id3->filesize / 1024);
                 return buf;
 
 #ifdef HAVE_TAGCACHE
         case SKIN_TOKEN_DATABASE_PLAYCOUNT:
             if (intval)
                 *intval = id3->playcount + 1;
-            snprintf(buf, buf_size, "%ld", id3->playcount);
+            itoa_buf(buf, buf_size, id3->playcount);
             return buf;
         case SKIN_TOKEN_DATABASE_RATING:
             if (intval)
                 *intval = id3->rating + 1;
-            snprintf(buf, buf_size, "%d", id3->rating);
+            itoa_buf(buf, buf_size, id3->rating);
             return buf;
         case SKIN_TOKEN_DATABASE_AUTOSCORE:
             if (intval)
                 *intval = id3->score + 1;
-            snprintf(buf, buf_size, "%d", id3->score);
+            itoa_buf(buf, buf_size, id3->score);
             return buf;
 #endif
 
@@ -455,7 +455,7 @@ const char *get_radio_token(struct wps_token *token, int preset_offset,
                 return "t";
             return NULL;
         case SKIN_TOKEN_TUNER_SCANMODE:
-            if (radio_scan_mode())
+            if (radio_get_mode() == RADIO_SCAN_MODE)
                 return "s";
             return NULL;
         case SKIN_TOKEN_TUNER_STEREO:
@@ -469,11 +469,11 @@ const char *get_radio_token(struct wps_token *token, int preset_offset,
             return format_freq_MHz(region_data->freq_max,
                             region_data->freq_step, buf, buf_size);
         case SKIN_TOKEN_TUNER_CURFREQ:
-            return format_freq_MHz(radio_current_frequency(),
+            return format_freq_MHz(radio_get_current_frequency(),
                             region_data->freq_step, buf, buf_size);
 #ifdef HAVE_RADIO_RSSI
         case SKIN_TOKEN_TUNER_RSSI:
-            snprintf(buf, buf_size, "%d",tuner_get(RADIO_RSSI));
+            itoa_buf(buf, buf_size,tuner_get(RADIO_RSSI));
             if (intval)
             {
                 int val = tuner_get(RADIO_RSSI);
@@ -490,10 +490,10 @@ const char *get_radio_token(struct wps_token *token, int preset_offset,
             }
             return buf;
         case SKIN_TOKEN_TUNER_RSSI_MIN:
-            snprintf(buf, buf_size, "%d",tuner_get(RADIO_RSSI_MIN));
+            itoa_buf(buf, buf_size,tuner_get(RADIO_RSSI_MIN));
             return buf;
         case SKIN_TOKEN_TUNER_RSSI_MAX:
-            snprintf(buf, buf_size, "%d",tuner_get(RADIO_RSSI_MAX));
+            itoa_buf(buf, buf_size,tuner_get(RADIO_RSSI_MAX));
             return buf;
 #endif
         case SKIN_TOKEN_PRESET_NAME:
@@ -510,16 +510,16 @@ const char *get_radio_token(struct wps_token *token, int preset_offset,
             if (preset < 0)
                 preset += preset_count;
             if (token->type == SKIN_TOKEN_PRESET_NAME)
-                snprintf(buf, buf_size, "%s", radio_get_preset(preset)->name);
+                snprintf(buf, buf_size, "%s", radio_get_preset_name(preset));
             else if (token->type == SKIN_TOKEN_PRESET_FREQ)
-                format_freq_MHz(radio_get_preset(preset)->frequency,
+                format_freq_MHz(radio_get_preset_freq(preset),
                                 region_data->freq_step, buf, buf_size);
             else
-                snprintf(buf, buf_size, "%d", preset + 1);
+                itoa_buf(buf, buf_size, preset + 1);
             return buf;
         }
         case SKIN_TOKEN_PRESET_COUNT:
-            snprintf(buf, buf_size, "%d", radio_preset_count());
+            itoa_buf(buf, buf_size, radio_preset_count());
             if (intval)
                 *intval = radio_preset_count();
             return buf;
@@ -542,44 +542,133 @@ const char *get_radio_token(struct wps_token *token, int preset_offset,
 }
 #endif
 
-static struct mp3entry* get_mp3entry_from_offset(int offset, char **filename)
+static struct mp3entry* get_mp3entry_from_offset(int offset,
+                                   struct mp3entry **freeid3, char **filename)
 {
     struct mp3entry* pid3 = NULL;
     struct wps_state *state = get_wps_state();
     struct cuesheet *cue = state->id3 ? state->id3->cuesheet : NULL;
     const char *fname = NULL;
+
     if (cue && cue->curr_track_idx + offset < cue->track_count)
         pid3 = state->id3;
     else if (offset == 0)
         pid3 = state->id3;
     else if (offset == 1)
         pid3 = state->nid3;
-    else
+    else if (audio_status() & AUDIO_STATUS_PLAY)
     {
-        static struct mp3entry tempid3; /* Note: path gets passed to outside fns */
-        memset(&tempid3, 0, sizeof(struct mp3entry));
-        /*static char filename_buf[MAX_PATH + 1];removed g#5926 */
-        fname = playlist_peek(offset, tempid3.path, sizeof(tempid3.path));
+        /* we had to get a temp id3 entry, fill freeid3 to free later */
+        struct mp3entry *bufid3 = get_temp_mp3entry(NULL);
+        *freeid3 = bufid3;
+        fname = playlist_peek(offset, bufid3->path, sizeof(bufid3->path));
         *filename = (char*)fname;
 
         if (
 #if defined(HAVE_TC_RAMCACHE) && defined(HAVE_DIRCACHE)
-            tagcache_fill_tags(&tempid3, NULL) ||
+            tagcache_fill_tags(bufid3, NULL) ||
 #endif
-            audio_peek_track(&tempid3, offset)
+            audio_peek_track(bufid3, offset)
         )
         {
-            pid3 = &tempid3;
+            pid3 = bufid3;
         }
         else /* failed */
         {
             /* ensure *filename gets the path, audio_peek_track() cleared it */
-            fname = playlist_peek(offset, tempid3.path, sizeof(tempid3.path));
+            fname = playlist_peek(offset, bufid3->path, sizeof(bufid3->path));
             *filename = (char*)fname;
         }
     }
 
     return pid3;
+}
+
+/* Tokens which use current id3 go here */
+static const char *try_id3_token(struct wps_token *token, int offset,
+                                              char *buf, int buf_size,
+                                              int limit, int *intval)
+{
+    const char *out_text = NULL;
+    char *filename = NULL;
+    struct mp3entry *id3, *freeid3 = NULL;
+
+    /* if freeid3 is filled on return we need to free the id3 when finished */
+    id3 = get_mp3entry_from_offset(token->next? 1: offset, &freeid3, &filename);
+
+    if (token->type == SKIN_TOKEN_REPLAYGAIN)
+    {
+        int numeric_ret = -1;
+        const char *numeric_buf = buf;
+        int globtype = global_settings.replaygain_settings.type;
+        int val;
+
+        if (globtype == REPLAYGAIN_OFF)
+            val = 1; /* off */
+        else
+        {
+            int type = id3_get_replaygain_mode(id3);
+
+            if (type < 0)
+                val = 6;    /* no tag */
+            else
+                val = type + 2;
+
+            if (globtype == REPLAYGAIN_SHUFFLE)
+                val += 2;
+        }
+
+        numeric_ret = val;
+        switch (val)
+        {
+            case 1:
+            case 6:
+                numeric_buf = "+0.00 dB";;
+                break;
+            /* due to above, coming here with !id3 shouldn't be possible */
+            case 2:
+            case 4:
+                replaygain_itoa(buf, buf_size, id3->track_level);
+                break;
+            case 3:
+            case 5:
+                replaygain_itoa(buf, buf_size, id3->album_level);
+                break;
+        }
+
+        if (intval)
+        {
+            *intval = numeric_ret;
+        }
+        out_text = numeric_buf;
+        goto free_id3_outtext;
+    }
+
+    struct wps_state *state = get_wps_state();
+    if (id3 && id3 == state->id3 && id3->cuesheet)
+    {
+        out_text = get_cuesheetid3_token(token, id3,
+                                         token->next?1:offset, buf, buf_size);
+        if (out_text)
+            goto free_id3_outtext;
+    }
+
+    out_text = get_id3_token(token, id3, filename, buf, buf_size, limit, intval);
+
+    if (out_text)
+        goto free_id3_outtext;
+
+    if (freeid3)
+        get_temp_mp3entry(freeid3);
+#if CONFIG_TUNER
+    return get_radio_token(token, offset, buf, buf_size, limit, intval);
+#else
+    return NULL;
+#endif
+free_id3_outtext:
+    if (freeid3)
+        get_temp_mp3entry(freeid3);
+    return out_text;
 }
 
 /* Don't inline this; it was broken out of get_token_value to reduce stack
@@ -668,10 +757,208 @@ static const char* NOINLINE get_lif_token_value(struct gui_wps *gwps,
     return NULL;
 }
 
-#ifdef HAVE_QUICKSCREEN
-static const char* get_qs_token_value(enum quickscreen_item item, bool data_token,
-                                       char *buf, int buf_size)
+/* RTC tokens go here */
+static const char* get_rtc_token_value(struct wps_token *token,
+                                                char *buf, int buf_size,
+                                                int *intval)
 {
+#if CONFIG_RTC
+    int numeric_ret = -1;
+    const char *numeric_buf = buf;
+    struct tm* tm = get_time();
+
+    if (!valid_time(tm))
+        return NULL;
+
+    switch (token->type)
+    {
+        default:
+            return "?";
+
+
+        case SKIN_TOKEN_RTC_12HOUR_CFG:
+            itoa_buf(buf, buf_size, global_settings.timeformat);
+            numeric_ret = global_settings.timeformat + 1;
+            break;
+        case SKIN_TOKEN_RTC_DAY_OF_MONTH:
+            /* d: day of month (01..31) */
+            snprintf(buf, buf_size, "%02d", tm->tm_mday);
+            numeric_ret = tm->tm_mday - 1;
+            break;
+
+        case SKIN_TOKEN_RTC_DAY_OF_MONTH_BLANK_PADDED:
+            /* e: day of month, blank padded ( 1..31) */
+            snprintf(buf, buf_size, "%2d", tm->tm_mday);
+            numeric_ret = tm->tm_mday - 1;
+            break;
+
+        case SKIN_TOKEN_RTC_HOUR_24_ZERO_PADDED:
+            /* H: hour (00..23) */
+            numeric_ret = tm->tm_hour;
+            snprintf(buf, buf_size, "%02d", numeric_ret);
+            break;
+
+        case SKIN_TOKEN_RTC_HOUR_24:
+            /* k: hour ( 0..23) */
+            numeric_ret = tm->tm_hour;
+            snprintf(buf, buf_size, "%2d", numeric_ret);
+            break;
+
+        case SKIN_TOKEN_RTC_HOUR_12_ZERO_PADDED:
+            /* I: hour (01..12) */
+            numeric_ret = (tm->tm_hour % 12 == 0) ? 12 : tm->tm_hour % 12;
+            snprintf(buf, buf_size, "%02d", numeric_ret);
+            break;
+
+        case SKIN_TOKEN_RTC_HOUR_12:
+            /* l: hour ( 1..12) */
+            numeric_ret = (tm->tm_hour % 12 == 0) ? 12 : tm->tm_hour % 12;
+            snprintf(buf, buf_size, "%2d", numeric_ret);
+            break;
+
+        case SKIN_TOKEN_RTC_MONTH:
+            /* m: month (01..12) */
+            numeric_ret = tm->tm_mon + 1;
+            snprintf(buf, buf_size, "%02d", numeric_ret);
+            break;
+
+        case SKIN_TOKEN_RTC_MINUTE:
+            /* M: minute (00..59) */
+            numeric_ret = tm->tm_min;
+            snprintf(buf, buf_size, "%02d", numeric_ret);
+            break;
+
+        case SKIN_TOKEN_RTC_SECOND:
+            /* S: second (00..59) */
+            numeric_ret = tm->tm_sec;
+            snprintf(buf, buf_size, "%02d", numeric_ret);
+            break;
+
+        case SKIN_TOKEN_RTC_YEAR_2_DIGITS:
+            /* y: last two digits of year (00..99) */
+            numeric_ret = tm->tm_year % 100;
+            snprintf(buf, buf_size, "%02d", numeric_ret);
+            break;
+
+        case SKIN_TOKEN_RTC_YEAR_4_DIGITS:
+            /* Y: year (1970...) */
+            numeric_ret = tm->tm_year + 1900;
+            snprintf(buf, buf_size, "%04d", numeric_ret);
+            break;
+
+        case SKIN_TOKEN_RTC_AM_PM_UPPER:
+            /* p: upper case AM or PM indicator */
+            numeric_ret = tm->tm_hour/12 == 0 ? 0 : 1;
+            numeric_buf = numeric_ret == 0 ? "AM" : "PM";
+            break;
+
+        case SKIN_TOKEN_RTC_AM_PM_LOWER:
+            /* P: lower case am or pm indicator */
+            numeric_ret= tm->tm_hour/12 == 0 ? 0 : 1;
+            numeric_buf = numeric_ret == 0 ? "am" : "pm";
+            break;
+
+        case SKIN_TOKEN_RTC_WEEKDAY_NAME:
+            /* a: abbreviated weekday name (Sun..Sat) */
+            return str(LANG_WEEKDAY_SUNDAY + tm->tm_wday);
+
+        case SKIN_TOKEN_RTC_MONTH_NAME:
+            /* b: abbreviated month name (Jan..Dec) */
+            return str(LANG_MONTH_JANUARY + tm->tm_mon);
+
+        case SKIN_TOKEN_RTC_DAY_OF_WEEK_START_MON:
+            /* u: day of week (1..7); 1 is Monday */
+            snprintf(buf, buf_size, "%1d", tm->tm_wday + 1);
+            numeric_ret = (tm->tm_wday == 0) ? 7 : tm->tm_wday;
+            break;
+
+        case SKIN_TOKEN_RTC_DAY_OF_WEEK_START_SUN:
+            /* w: day of week (0..6); 0 is Sunday */
+            snprintf(buf, buf_size, "%1d", tm->tm_wday);
+            numeric_ret = tm->tm_wday + 1;
+            break;
+        } /* switch */
+
+        if (intval)
+        {
+            *intval = numeric_ret;
+        }
+        return numeric_buf;
+#else   /* !CONFIG_RTC */
+    (void)buf;
+    (void)buf_size;
+    (void)intval;
+
+    switch (token->type)
+    {
+        default:
+            return "?";
+
+        case SKIN_TOKEN_RTC_DAY_OF_MONTH:
+        case SKIN_TOKEN_RTC_DAY_OF_MONTH_BLANK_PADDED:
+        case SKIN_TOKEN_RTC_HOUR_24_ZERO_PADDED:
+        case SKIN_TOKEN_RTC_HOUR_24:
+        case SKIN_TOKEN_RTC_HOUR_12_ZERO_PADDED:
+        case SKIN_TOKEN_RTC_HOUR_12:
+        case SKIN_TOKEN_RTC_MONTH:
+        case SKIN_TOKEN_RTC_MINUTE:
+        case SKIN_TOKEN_RTC_SECOND:
+        case SKIN_TOKEN_RTC_AM_PM_UPPER:
+        case SKIN_TOKEN_RTC_AM_PM_LOWER:
+        case SKIN_TOKEN_RTC_YEAR_2_DIGITS:
+            return "--";
+        case SKIN_TOKEN_RTC_YEAR_4_DIGITS:
+            return "----";
+        case SKIN_TOKEN_RTC_WEEKDAY_NAME:
+        case SKIN_TOKEN_RTC_MONTH_NAME:
+            return "---";
+        case SKIN_TOKEN_RTC_DAY_OF_WEEK_START_MON:
+        case SKIN_TOKEN_RTC_DAY_OF_WEEK_START_SUN:
+            return "-";
+    }
+    return NULL;
+#endif /* CONFIG_RTC */
+}
+
+#ifdef HAVE_QUICKSCREEN
+static const char* get_qs_token_value(struct wps_token *token, char *buf, int buf_size)
+{
+    enum quickscreen_item item;
+    bool data_token = true;
+
+    switch(token->type)
+    {
+        case SKIN_TOKEN_TOP_QUICKSETTING_NAME:
+            data_token = false;
+            /*fall-through*/
+        case SKIN_TOKEN_TOP_QUICKSETTING_VALUE:
+            item = QUICKSCREEN_TOP;
+            break;
+
+        case SKIN_TOKEN_RIGHT_QUICKSETTING_NAME:
+            data_token = false;
+            /*fall-through*/
+        case SKIN_TOKEN_RIGHT_QUICKSETTING_VALUE:
+            item = QUICKSCREEN_RIGHT;
+            break;
+
+        case SKIN_TOKEN_BOTTOM_QUICKSETTING_NAME:
+            data_token = false;
+            /*fall-through*/
+        case SKIN_TOKEN_BOTTOM_QUICKSETTING_VALUE:
+            item = QUICKSCREEN_BOTTOM;
+            break;
+
+        case SKIN_TOKEN_LEFT_QUICKSETTING_NAME:
+            data_token = false;
+            /*fall-through*/
+        case SKIN_TOKEN_LEFT_QUICKSETTING_VALUE:
+            item = QUICKSCREEN_LEFT;
+            break;
+
+        default:
+            return NULL;
+    }
     const struct settings_list *qs_setting = global_settings.qs_items[item];
 
     if (qs_setting == NULL)
@@ -683,7 +970,7 @@ static const char* get_qs_token_value(enum quickscreen_item item, bool data_toke
 
     return P2STR(ID2P(qs_setting->lang_id));
 }
-#endif
+#endif /*def HAVE_QUICKSCREEN */
 
 /* Return the tags value as text. buf should be used as temp storage if needed.
 
@@ -701,7 +988,6 @@ const char *get_token_value(struct gui_wps *gwps,
 {
     int numeric_ret = -1;
     const char *numeric_buf = "?";
-    int fmt_size;
 
     if (!gwps)
         return NULL;
@@ -710,30 +996,11 @@ const char *get_token_value(struct gui_wps *gwps,
 
     struct wps_data *data = gwps->data;
     struct wps_state *state = get_wps_state();
-    struct mp3entry *id3; /* Think very carefully about using this.
-                             maybe get_id3_token() is the better place? */
+
     const char *out_text = NULL;
-    char *filename = NULL;
 
     if (!data || !state)
         return NULL;
-
-    id3 = get_mp3entry_from_offset(token->next? 1: offset, &filename);
-
-#if CONFIG_RTC
-    struct tm* tm = NULL;
-
-    /* if the token is an RTC one, update the time
-       and do the necessary checks */
-    if (token->type >= SKIN_TOKENS_RTC_BEGIN
-        && token->type <= SKIN_TOKENS_RTC_END)
-    {
-        tm = get_time();
-
-        if (!valid_time(tm))
-            return NULL;
-    }
-#endif
 
     int limit = 1;
     if (intval)
@@ -741,22 +1008,6 @@ const char *get_token_value(struct gui_wps *gwps,
         limit = *intval;
         *intval = -1;
     }
-
-    if (id3 && id3 == state->id3 && id3->cuesheet )
-    {
-        out_text = get_cuesheetid3_token(token, id3,
-                                         token->next?1:offset, buf, buf_size);
-        if (out_text)
-            return out_text;
-    }
-    out_text = get_id3_token(token, id3, filename, buf, buf_size, limit, intval);
-    if (out_text)
-        return out_text;
-#if CONFIG_TUNER
-    out_text = get_radio_token(token, offset, buf, buf_size, limit, intval);
-    if (out_text)
-        return out_text;
-#endif
 
     switch (token->type)
     {
@@ -766,7 +1017,7 @@ const char *get_token_value(struct gui_wps *gwps,
             return get_lif_token_value(gwps, lif, offset, buf, buf_size);
         }
         break;
-        case SKIN_TOKEN_LOGICAL_AND:
+        case SKIN_TOKEN_LOGICAL_AND: /*fall-through*/
         case SKIN_TOKEN_LOGICAL_OR:
         {
             int i = 0, truecount = 0;
@@ -823,7 +1074,11 @@ const char *get_token_value(struct gui_wps *gwps,
                 byte_len = end_byte - start_byte;
 
                 if (token_val != buf)
+                {
+                    if (byte_len >= buf_size) /* the resulting string exceeds buf */
+                        return &token_val[start_byte]; /* just return the string */
                     memcpy(buf, &token_val[start_byte], byte_len);
+                }
                 else
                     buf = &buf[start_byte];
 
@@ -855,14 +1110,14 @@ const char *get_token_value(struct gui_wps *gwps,
 
         case SKIN_TOKEN_PLAYLIST_ENTRIES:
             numeric_ret = playlist_amount();
-            snprintf(buf, buf_size, "%d", numeric_ret);
+            itoa_buf(buf, buf_size, numeric_ret);
             numeric_buf = buf;
             goto gtv_ret_numeric_tag_info;
         case SKIN_TOKEN_LIST_TITLE_TEXT:
             return sb_get_title(gwps->display->screen_type);
         case SKIN_TOKEN_LIST_TITLE_ICON:
             numeric_ret = sb_get_icon(gwps->display->screen_type);
-            snprintf(buf, buf_size, "%d", numeric_ret);
+            itoa_buf(buf, buf_size, numeric_ret);
             numeric_buf = buf;
             goto gtv_ret_numeric_tag_info;
         case SKIN_TOKEN_LIST_ITEM_TEXT:
@@ -873,17 +1128,17 @@ const char *get_token_value(struct gui_wps *gwps,
         }
         case SKIN_TOKEN_LIST_ITEM_ROW:
             numeric_ret = skinlist_get_item_row() + 1;
-            snprintf(buf, buf_size, "%d", numeric_ret);
+            itoa_buf(buf, buf_size, numeric_ret);
             numeric_buf = buf;
             goto gtv_ret_numeric_tag_info;
         case SKIN_TOKEN_LIST_ITEM_COLUMN:
             numeric_ret = skinlist_get_item_column() + 1;
-            snprintf(buf, buf_size, "%d", numeric_ret);
+            itoa_buf(buf, buf_size, numeric_ret);
             numeric_buf = buf;
             goto gtv_ret_numeric_tag_info;
         case SKIN_TOKEN_LIST_ITEM_NUMBER:
             numeric_ret = skinlist_get_item_number() + 1;
-            snprintf(buf, buf_size, "%d", numeric_ret);
+            itoa_buf(buf, buf_size, numeric_ret);
             numeric_buf = buf;
             goto gtv_ret_numeric_tag_info;
         case SKIN_TOKEN_LIST_ITEM_IS_SELECTED:
@@ -894,7 +1149,7 @@ const char *get_token_value(struct gui_wps *gwps,
             if (!li) return NULL;
             int icon = skinlist_get_item_icon(li->offset, li->wrap);
             numeric_ret = icon;
-            snprintf(buf, buf_size, "%d", numeric_ret);
+            itoa_buf(buf, buf_size, numeric_ret);
             numeric_buf = buf;
             goto gtv_ret_numeric_tag_info;
         }
@@ -905,7 +1160,7 @@ const char *get_token_value(struct gui_wps *gwps,
 
         case SKIN_TOKEN_PLAYLIST_POSITION:
             numeric_ret = playlist_get_display_index()+offset;
-            snprintf(buf, buf_size, "%d", numeric_ret);
+            itoa_buf(buf, buf_size, numeric_ret);
             numeric_buf = buf;
             goto gtv_ret_numeric_tag_info;
 
@@ -917,40 +1172,31 @@ const char *get_token_value(struct gui_wps *gwps,
             break;
 
         case SKIN_TOKEN_VOLUME:
-            fmt_size = format_sound_value(buf, buf_size, SOUND_VOLUME,
-                                          global_settings.volume);
-            /* FIXME: this is a cheap hack to avoid breaking existing themes.
-             * The new formatting includes a unit based on the AUDIOHW_SETTING
-             * definition -- on all targets, it's defined to be "dB". But the
-             * old formatting was just an integer value, and many themes append
-             * "dB" manually. So we need to strip the unit to unbreak all those
-             * existing themes.
-             */
-            if(fmt_size >= 3 && !strcmp(&buf[fmt_size - 3], " dB"))
-                buf[fmt_size - 3] = 0;
+            format_sound_value_ex(buf, buf_size, SOUND_VOLUME,
+                                  global_status.volume, true);
 
             if (intval)
             {
                 int minvol = sound_min(SOUND_VOLUME);
                 if (limit == TOKEN_VALUE_ONLY)
                 {
-                    numeric_ret = global_settings.volume;
+                    numeric_ret = global_status.volume;
                 }
-                else if (global_settings.volume == minvol)
+                else if (global_status.volume == minvol)
                 {
                     numeric_ret = 1;
                 }
-                else if (global_settings.volume == 0)
+                else if (global_status.volume == 0)
                 {
                     numeric_ret = limit - 1;
                 }
-                else if (global_settings.volume > 0)
+                else if (global_status.volume > 0)
                 {
                     numeric_ret = limit;
                 }
                 else
                 {
-                    numeric_ret = (limit-3) * (global_settings.volume - minvol - 1)
+                    numeric_ret = (limit-3) * (global_status.volume - minvol - 1)
                                 / (-1 - minvol) + 2;
                 }
             }
@@ -1002,7 +1248,7 @@ const char *get_token_value(struct gui_wps *gwps,
             }
 
             if (l > -1) {
-                snprintf(buf, buf_size, "%d", l);
+                itoa_buf(buf, buf_size, l);
                 numeric_buf = buf;
                 goto gtv_ret_numeric_tag_info;
             } else {
@@ -1081,164 +1327,23 @@ const char *get_token_value(struct gui_wps *gwps,
                 break;
             }
 
-            snprintf(buf, buf_size, "%d", numeric_ret-1);
+            itoa_buf(buf, buf_size, numeric_ret-1);
             numeric_buf = buf;
             goto gtv_ret_numeric_tag_info;
         }
 
         case SKIN_TOKEN_REPEAT_MODE:
-            snprintf(buf, buf_size, "%d", global_settings.repeat_mode);
+            itoa_buf(buf, buf_size, global_settings.repeat_mode);
             numeric_ret = global_settings.repeat_mode + 1;
             numeric_buf = buf;
             goto gtv_ret_numeric_tag_info;
+
         case SKIN_TOKEN_RTC_PRESENT:
 #if CONFIG_RTC
-                return "c";
+            return "c";
 #else
-                return NULL;
+            return NULL;
 #endif
-
-#if CONFIG_RTC
-        case SKIN_TOKEN_RTC_12HOUR_CFG:
-            snprintf(buf, buf_size, "%d", global_settings.timeformat);
-            numeric_ret = global_settings.timeformat + 1;
-            numeric_buf = buf;
-            goto gtv_ret_numeric_tag_info;
-
-        case SKIN_TOKEN_RTC_DAY_OF_MONTH:
-            /* d: day of month (01..31) */
-            snprintf(buf, buf_size, "%02d", tm->tm_mday);
-            numeric_ret = tm->tm_mday - 1;
-            numeric_buf = buf;
-            goto gtv_ret_numeric_tag_info;
-
-        case SKIN_TOKEN_RTC_DAY_OF_MONTH_BLANK_PADDED:
-            /* e: day of month, blank padded ( 1..31) */
-            snprintf(buf, buf_size, "%2d", tm->tm_mday);
-            numeric_ret = tm->tm_mday - 1;
-            numeric_buf = buf;
-            goto gtv_ret_numeric_tag_info;
-
-        case SKIN_TOKEN_RTC_HOUR_24_ZERO_PADDED:
-            /* H: hour (00..23) */
-            numeric_ret = tm->tm_hour;
-            snprintf(buf, buf_size, "%02d", numeric_ret);
-            numeric_buf = buf;
-            goto gtv_ret_numeric_tag_info;
-
-        case SKIN_TOKEN_RTC_HOUR_24:
-            /* k: hour ( 0..23) */
-            numeric_ret = tm->tm_hour;
-            snprintf(buf, buf_size, "%2d", numeric_ret);
-            numeric_buf = buf;
-            goto gtv_ret_numeric_tag_info;
-
-        case SKIN_TOKEN_RTC_HOUR_12_ZERO_PADDED:
-            /* I: hour (01..12) */
-            numeric_ret = (tm->tm_hour % 12 == 0) ? 12 : tm->tm_hour % 12;
-            snprintf(buf, buf_size, "%02d", numeric_ret);
-            numeric_buf = buf;
-            goto gtv_ret_numeric_tag_info;
-
-        case SKIN_TOKEN_RTC_HOUR_12:
-            /* l: hour ( 1..12) */
-            numeric_ret = (tm->tm_hour % 12 == 0) ? 12 : tm->tm_hour % 12;
-            snprintf(buf, buf_size, "%2d", numeric_ret);
-            numeric_buf = buf;
-            goto gtv_ret_numeric_tag_info;
-
-        case SKIN_TOKEN_RTC_MONTH:
-            /* m: month (01..12) */
-            numeric_ret = tm->tm_mon + 1;
-            snprintf(buf, buf_size, "%02d", numeric_ret);
-            numeric_buf = buf;
-            goto gtv_ret_numeric_tag_info;
-
-        case SKIN_TOKEN_RTC_MINUTE:
-            /* M: minute (00..59) */
-            numeric_ret = tm->tm_min;
-            snprintf(buf, buf_size, "%02d", numeric_ret);
-            numeric_buf = buf;
-            goto gtv_ret_numeric_tag_info;
-
-        case SKIN_TOKEN_RTC_SECOND:
-            /* S: second (00..59) */
-            numeric_ret = tm->tm_sec;
-            snprintf(buf, buf_size, "%02d", numeric_ret);
-            numeric_buf = buf;
-            goto gtv_ret_numeric_tag_info;
-
-        case SKIN_TOKEN_RTC_YEAR_2_DIGITS:
-            /* y: last two digits of year (00..99) */
-            numeric_ret = tm->tm_year % 100;
-            snprintf(buf, buf_size, "%02d", numeric_ret);
-            numeric_buf = buf;
-            goto gtv_ret_numeric_tag_info;
-
-        case SKIN_TOKEN_RTC_YEAR_4_DIGITS:
-            /* Y: year (1970...) */
-            numeric_ret = tm->tm_year + 1900;
-            snprintf(buf, buf_size, "%04d", numeric_ret);
-            numeric_buf = buf;
-            goto gtv_ret_numeric_tag_info;
-
-        case SKIN_TOKEN_RTC_AM_PM_UPPER:
-            /* p: upper case AM or PM indicator */
-            numeric_ret = tm->tm_hour/12 == 0 ? 0 : 1;
-            numeric_buf = numeric_ret == 0 ? "AM" : "PM";
-            goto gtv_ret_numeric_tag_info;
-
-        case SKIN_TOKEN_RTC_AM_PM_LOWER:
-            /* P: lower case am or pm indicator */
-            numeric_ret= tm->tm_hour/12 == 0 ? 0 : 1;
-            numeric_buf = numeric_ret == 0 ? "am" : "pm";
-            goto gtv_ret_numeric_tag_info;
-
-        case SKIN_TOKEN_RTC_WEEKDAY_NAME:
-            /* a: abbreviated weekday name (Sun..Sat) */
-            return str(LANG_WEEKDAY_SUNDAY + tm->tm_wday);
-
-        case SKIN_TOKEN_RTC_MONTH_NAME:
-            /* b: abbreviated month name (Jan..Dec) */
-            return str(LANG_MONTH_JANUARY + tm->tm_mon);
-
-        case SKIN_TOKEN_RTC_DAY_OF_WEEK_START_MON:
-            /* u: day of week (1..7); 1 is Monday */
-            snprintf(buf, buf_size, "%1d", tm->tm_wday + 1);
-            numeric_ret = (tm->tm_wday == 0) ? 7 : tm->tm_wday;
-            numeric_buf = buf;
-            goto gtv_ret_numeric_tag_info;
-
-        case SKIN_TOKEN_RTC_DAY_OF_WEEK_START_SUN:
-            /* w: day of week (0..6); 0 is Sunday */
-            snprintf(buf, buf_size, "%1d", tm->tm_wday);
-            numeric_ret = tm->tm_wday + 1;
-            numeric_buf = buf;
-            goto gtv_ret_numeric_tag_info;
-#else   /* !CONFIG_RTC */
-        case SKIN_TOKEN_RTC_DAY_OF_MONTH:
-        case SKIN_TOKEN_RTC_DAY_OF_MONTH_BLANK_PADDED:
-        case SKIN_TOKEN_RTC_HOUR_24_ZERO_PADDED:
-        case SKIN_TOKEN_RTC_HOUR_24:
-        case SKIN_TOKEN_RTC_HOUR_12_ZERO_PADDED:
-        case SKIN_TOKEN_RTC_HOUR_12:
-        case SKIN_TOKEN_RTC_MONTH:
-        case SKIN_TOKEN_RTC_MINUTE:
-        case SKIN_TOKEN_RTC_SECOND:
-        case SKIN_TOKEN_RTC_AM_PM_UPPER:
-        case SKIN_TOKEN_RTC_AM_PM_LOWER:
-        case SKIN_TOKEN_RTC_YEAR_2_DIGITS:
-            return "--";
-        case SKIN_TOKEN_RTC_YEAR_4_DIGITS:
-            return "----";
-        case SKIN_TOKEN_RTC_WEEKDAY_NAME:
-        case SKIN_TOKEN_RTC_MONTH_NAME:
-            return "---";
-        case SKIN_TOKEN_RTC_DAY_OF_WEEK_START_MON:
-        case SKIN_TOKEN_RTC_DAY_OF_WEEK_START_SUN:
-            return "-";
-#endif /* CONFIG_RTC */
-
         /* peakmeter */
         case SKIN_TOKEN_PEAKMETER_LEFT:
         case SKIN_TOKEN_PEAKMETER_RIGHT:
@@ -1249,7 +1354,7 @@ const char *get_token_value(struct gui_wps *gwps,
                     left : right;
             val = peak_meter_scale_value(val, limit==1 ? MAX_PEAK : limit);
             numeric_ret = val;
-            snprintf(buf, buf_size, "%d", numeric_ret);
+            itoa_buf(buf, buf_size, numeric_ret);
             data->peak_meter_enabled = true;
             numeric_buf = buf;
             goto gtv_ret_numeric_tag_info;
@@ -1257,55 +1362,13 @@ const char *get_token_value(struct gui_wps *gwps,
 
         case SKIN_TOKEN_CROSSFADE:
 #ifdef HAVE_CROSSFADE
-            snprintf(buf, buf_size, "%d", global_settings.crossfade);
+            itoa_buf(buf, buf_size, global_settings.crossfade);
             numeric_ret = global_settings.crossfade + 1;
 #else
-            snprintf(buf, buf_size, "%d", 0);
+            itoa_buf(buf, buf_size, 0);
 #endif
             numeric_buf = buf;
             goto gtv_ret_numeric_tag_info;
-
-        case SKIN_TOKEN_REPLAYGAIN:
-        {
-            int globtype = global_settings.replaygain_settings.type;
-            int val;
-
-
-            if (globtype == REPLAYGAIN_OFF)
-                val = 1; /* off */
-            else
-            {
-                int type = id3_get_replaygain_mode(id3);
-
-                if (type < 0)
-                    val = 6;    /* no tag */
-                else
-                    val = type + 2;
-
-                if (globtype == REPLAYGAIN_SHUFFLE)
-                    val += 2;
-            }
-
-            numeric_ret = val;
-            switch (val)
-            {
-                case 1:
-                case 6:
-                    numeric_buf = "+0.00 dB";;
-                    goto gtv_ret_numeric_tag_info;
-                /* due to above, coming here with !id3 shouldn't be possible */
-                case 2:
-                case 4:
-                    replaygain_itoa(buf, buf_size, id3->track_level);
-                    break;
-                case 3:
-                case 5:
-                    replaygain_itoa(buf, buf_size, id3->album_level);
-                    break;
-            }
-            numeric_buf = buf;
-            goto gtv_ret_numeric_tag_info;
-        }
 
 #if defined (HAVE_PITCHCONTROL)
         case SKIN_TOKEN_SOUND_PITCH:
@@ -1401,21 +1464,14 @@ const char *get_token_value(struct gui_wps *gwps,
 
 #ifdef HAVE_QUICKSCREEN
         case SKIN_TOKEN_TOP_QUICKSETTING_NAME:
-            return get_qs_token_value(QUICKSCREEN_TOP, false, buf, buf_size);
         case SKIN_TOKEN_TOP_QUICKSETTING_VALUE:
-            return get_qs_token_value(QUICKSCREEN_TOP, true, buf, buf_size);
         case SKIN_TOKEN_RIGHT_QUICKSETTING_NAME:
-            return get_qs_token_value(QUICKSCREEN_RIGHT, false, buf, buf_size);
         case SKIN_TOKEN_RIGHT_QUICKSETTING_VALUE:
-            return get_qs_token_value(QUICKSCREEN_RIGHT, true, buf, buf_size);
         case SKIN_TOKEN_BOTTOM_QUICKSETTING_NAME:
-            return get_qs_token_value(QUICKSCREEN_BOTTOM, false, buf, buf_size);
         case SKIN_TOKEN_BOTTOM_QUICKSETTING_VALUE:
-            return get_qs_token_value(QUICKSCREEN_BOTTOM, true, buf, buf_size);
         case SKIN_TOKEN_LEFT_QUICKSETTING_NAME:
-            return get_qs_token_value(QUICKSCREEN_LEFT, false, buf, buf_size);
         case SKIN_TOKEN_LEFT_QUICKSETTING_VALUE:
-            return get_qs_token_value(QUICKSCREEN_LEFT, true, buf, buf_size);
+            return get_qs_token_value(token, buf, buf_size);
 #endif
 
         case SKIN_TOKEN_SETTING:
@@ -1447,7 +1503,7 @@ const char *get_token_value(struct gui_wps *gwps,
                              * on 16 bits ...
                              * but this is pretty useless anyway */
                             numeric_ret = *(int*)s->setting + 1;
-                        else if (s->cfg_vals == NULL)
+                        else if (setting_get_cfgvals(s) == NULL)
                             /* %?St|name|<1st choice|2nd choice|...> */
                             numeric_ret = (*(int*)s->setting-s->int_setting->min)
                                       /s->int_setting->step + 1;
@@ -1697,7 +1753,7 @@ const char *get_token_value(struct gui_wps *gwps,
         {
             int curr_screen = get_current_activity();
             numeric_ret = curr_screen;
-            snprintf(buf, buf_size, "%d", numeric_ret);
+            itoa_buf(buf, buf_size, numeric_ret);
             numeric_buf = buf;
             goto gtv_ret_numeric_tag_info;
         }
@@ -1711,7 +1767,7 @@ const char *get_token_value(struct gui_wps *gwps,
             char *skin_base = get_skin_buffer(data);
             struct skin_var* var = SKINOFFSETTOPTR(skin_base, token->value.data);
             numeric_ret = var->value;
-            snprintf(buf, buf_size, "%d", numeric_ret);
+            itoa_buf(buf, buf_size, numeric_ret);
             numeric_buf = buf;
             goto gtv_ret_numeric_tag_info;
         }
@@ -1730,8 +1786,18 @@ const char *get_token_value(struct gui_wps *gwps,
             return NULL;
 #endif
         default:
-            return NULL;
-    }
+        {
+            /* if the token is an RTC one, update the time
+               and do the necessary checks */
+            if (token->type >= SKIN_TOKENS_RTC_BEGIN
+                && token->type <= SKIN_TOKENS_RTC_END)
+            {
+                return get_rtc_token_value(token, buf, buf_size, intval);
+            }
+            /* Anything left must use the current id3 if not found returns NULL */
+            return try_id3_token(token, offset, buf, buf_size, limit, intval);
+        }
+    } /* switch */
 
 gtv_ret_numeric_tag_info:
     if (intval)

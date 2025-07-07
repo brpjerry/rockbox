@@ -199,6 +199,19 @@ int main(void)
     }
 #endif
 
+#if !defined(BOOTLOADER)
+    allocate_playback_log();
+    if (!file_exists(ROCKBOX_DIR"/playername.txt"))
+    {
+        int fd = open(ROCKBOX_DIR"/playername.txt", O_CREAT|O_WRONLY|O_TRUNC, 0666);
+        if(fd >= 0)
+        {
+            fdprintf(fd, "%s", MODEL_NAME);
+            close(fd);
+        }
+    }
+#endif
+
 #ifdef AUTOROCK
     {
         char filename[MAX_PATH];
@@ -306,7 +319,7 @@ static int INIT_ATTR init_dircache(bool preinit)
             struct dircache_info info;
             dircache_get_info(&info);
             global_status.dircache_size = info.size;
-            status_save();
+            status_save(true);
         }
         /* else don't wait or already enabled by load */
     }
@@ -422,8 +435,9 @@ static void init(void)
     pcm_init();
     dsp_init();
     settings_reset();
-    settings_load(SETTINGS_ALL);
+    settings_load();
     settings_apply(true);
+    init_battery_tables();
 #ifdef HAVE_DIRCACHE
     init_dircache(true);
     init_dircache(false);
@@ -486,7 +500,7 @@ static void init(void)
     power_init();
 
     enable_irq();
-#ifdef CPU_ARM
+#if defined(CPU_ARM_CLASSIC)
     enable_fiq();
 #endif
     /* current_tick should be ticking by now */
@@ -622,16 +636,32 @@ static void init(void)
         CHART("<disk_mount_all");
         if (rc<=0)
         {
+            int line=0;
             lcd_clear_display();
-            lcd_puts(0, 0, "No partition");
-            lcd_putsf(0, 1, "found (%d).", rc);
+            lcd_putsf(0, line++, "No partition found (%d).", rc);
 #ifndef USB_NONE
-            lcd_puts(0, 2, "Insert USB cable");
-            lcd_puts(0, 3, "and fix it.");
+            lcd_puts(0, line++, "Insert USB cable");
+            lcd_puts(0, line++, "and fix it.");
 #elif !defined(DEBUG) && !(CONFIG_STORAGE & STORAGE_RAMDISK)
-            lcd_puts(0, 2, "Rebooting in 5s");
+            lcd_puts(0, line++, "Rebooting in 5s");
 #endif
+            lcd_puts(0, line++, rbversion);
+
+            struct partinfo pinfo;
+            for (int i = 0 ; i < NUM_VOLUMES ; i++) {
+                disk_partinfo(i, &pinfo);
+                if (pinfo.type)
+                    lcd_putsf(0, line++, "P%d T%02x S%08lx",
+                              i, pinfo.type, pinfo.size);
+            }
             lcd_update();
+
+#if defined(MAX_VIRT_SECTOR_SIZE) && defined(DEFAULT_VIRT_SECTOR_SIZE)
+#ifdef HAVE_MULTIDRIVE
+            for (int i = 0 ; i < NUM_DRIVES ; i++)
+#endif
+                disk_set_sector_multiplier(IF_MD(i,) DEFAULT_VIRT_SECTOR_SIZE/SECTOR_SIZE);
+#endif
 
 #ifndef USB_NONE
             usb_start_monitoring();
@@ -649,6 +679,7 @@ static void init(void)
                 lcd_putsf(0, 4, "Error mounting: %08x", rc);
                 lcd_update();
                 sleep(HZ*5);
+                system_reboot();
             }
 #endif
         }
@@ -657,9 +688,9 @@ static void init(void)
     pcm_init();
     dsp_init();
 
-    CHART(">settings_load(ALL)");
-    settings_load(SETTINGS_ALL);
-    CHART("<settings_load(ALL)");
+    CHART(">settings_load");
+    settings_load();
+    CHART("<settings_load");
 
 #if defined(BUTTON_REC) || \
     (CONFIG_KEYPAD == GIGABEAT_PAD) || \
@@ -679,7 +710,9 @@ static void init(void)
         settings_reset();
     }
 #endif
-
+    CHART(">init_battery_tables");
+    init_battery_tables();
+    CHART("<init_battery_tables");
 #ifdef HAVE_DIRCACHE
     CHART(">init_dircache(true)");
     rc = init_dircache(true);

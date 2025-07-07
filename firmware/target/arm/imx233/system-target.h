@@ -23,6 +23,7 @@
 
 #include "system-arm.h"
 #include "mmu-arm.h"
+#include "cpucache-arm.h"
 #include "panic.h"
 #include "clkctrl-imx233.h"
 #include "icoll-imx233.h"
@@ -35,6 +36,7 @@
 #define IMX233_CPUFREQ_454_MHz  454740000
 #define IMX233_CPUFREQ_320_MHz  320000000
 #define IMX233_CPUFREQ_261_MHz  261820000
+#define IMX233_CPUFREQ_200_MHz  200000000
 #define IMX233_CPUFREQ_64_MHz    64000000
 #define IMX233_CPUFREQ_24_MHz    24000000
 
@@ -44,6 +46,8 @@
 #define CPUFREQ_MAX         IMX233_CPUFREQ_454_MHz
 #elif IMX233_SUBTARGET >= 3700
 #define CPUFREQ_MAX         IMX233_CPUFREQ_320_MHz
+#else
+#define CPUFREQ_MAX         IMX233_CPUFREQ_200_MHz
 #endif
 #define CPUFREQ_SLEEP       IMX233_CPUFREQ_64_MHz
 

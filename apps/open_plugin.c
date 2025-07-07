@@ -348,7 +348,7 @@ uint32_t open_plugin_add_path(const char *key, const char *plugin, const char *p
 
     logf("OP add_path Invalid, *Clearing entry*");
     if (lang_id != LANG_SHORTCUTS) /* from shortcuts menu */
-        splashf(HZ * 2, str(LANG_OPEN_PLUGIN_NOT_A_PLUGIN), pos);
+        splashf(HZ * 2, ID2P(LANG_OPEN_PLUGIN_NOT_A_PLUGIN), pos);
     op_clear_entry(op_entry);
     return 0;
 }
@@ -411,7 +411,27 @@ void open_plugin_browse(const char *key)
     };
 
     if (rockbox_browse(&browse) == GO_TO_PREVIOUS)
+    {
         open_plugin_add_path(key, tmp_buf, NULL);
+        const char *path = tmp_buf;
+#ifdef HAVE_MULTIVOLUME
+        path = strstr(path, ROCKBOX_DIR);
+        if (!path)
+            path = tmp_buf;
+#endif
+        /* if this is a viewer ask the user if they want to set a parameter */
+        if (op_entry->lang_id > 0
+            && strncmp(path, VIEWERS_DIR, sizeof(VIEWERS_DIR) -1) == 0)
+        {
+            if (yesno_pop(ID2P(LANG_PARAMETER)))
+            {
+                strcpy(op_entry->param, str(op_entry->lang_id));
+                op_update_dat(op_entry, true); /* flush to disk so plugin can find it */
+                plugin_load(VIEWERS_DIR "/open_plugins.rock",
+                            P2STR((unsigned char *)key));
+            }
+        }
+    }
 }
 
 /* open_plugin_load_entry()

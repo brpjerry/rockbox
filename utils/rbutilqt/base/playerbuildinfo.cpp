@@ -67,6 +67,7 @@ const static struct {
     { PlayerBuildInfo::Encoder,            ":target:/encoder"          },
     { PlayerBuildInfo::Brand,              ":target:/brand"            },
     { PlayerBuildInfo::PlayerPicture,      ":target:/playerpic"        },
+    { PlayerBuildInfo::ThemeName,          ":target:/themename"        },
     { PlayerBuildInfo::TargetNamesAll,     "_targets/all"              },
     { PlayerBuildInfo::TargetNamesEnabled, "_targets/enabled"          },
     { PlayerBuildInfo::LanguageInfo,       "languages/:target:"        },
@@ -91,6 +92,7 @@ PlayerBuildInfo::PlayerBuildInfo() :
      serverInfo(nullptr),
      playerInfo(":/ini/rbutil.ini", QSettings::IniFormat)
 {
+    playerInfo.setIniCodec("UTF-8");
 
 }
 
@@ -129,9 +131,9 @@ QVariant PlayerBuildInfo::value(BuildInfo item, BuildType type)
         break;
     case TypeDevel:
         buildtypename = "development";
-        // manual and fonts don't exist for development builds. We do have an
-        // URL configured, but need to get the daily version instead.
-        if(item == BuildManualUrl || item == BuildFontUrl) {
+        // For development builds, we only provide the binaries.
+        // For the rest, get the daily version instead.
+        if(item != BuildUrl) {
             LOG_INFO() << "falling back to daily build for this info value";
             buildtypename = "daily";
         }
@@ -332,7 +334,7 @@ QVariant PlayerBuildInfo::value(SystemUrl item)
 QString PlayerBuildInfo::statusAsString(QString platform)
 {
     QString result;
-    switch(value(BuildStatus, platform).toInt())
+    switch(value(BuildStatus, platform.split('.').at(0)).toInt())
     {
     case STATUS_RETIRED:
         result = tr("Stable (Retired)");
@@ -370,4 +372,3 @@ QStringList PlayerBuildInfo::targetNames(bool all)
     }
     return result;
 }
-

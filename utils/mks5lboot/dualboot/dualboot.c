@@ -25,10 +25,10 @@
 #include "system.h"
 #include "button.h"
 
-#include "s5l8702.h"
+#include "s5l87xx.h"
 #include "clocking-s5l8702.h"
 #include "spi-s5l8702.h"
-#include "nor-target.h"
+#include "norboot-target.h"
 #include "piezo.h"
 
 /* How it works:
@@ -51,7 +51,7 @@
  * - dualboot-uninstaller: uninstall RB bootloader from NOR, leaving it at
  *   it's previous (pristine) state.
  *
- * See bootloader/ipod6g.c for notes on how the RB bootloader works.
+ * See bootloader/ipod-s5l87xx.c for notes on how the RB bootloader works.
  *
  *
  *               Pristine NOR                    Rockboxed NOR
@@ -108,8 +108,13 @@ static uint16_t fatal[] = { 3000,500,500, 3000,500,500, 3000,500,0, 0 };
 
 /* iPod Classic: decrypted hashes for known OFs */
 static unsigned char of_sha[][SIGN_SZ] = {
+    "\x31\xD1\x7A\x3A\x4B\x05\xE4\x09\x6B\x58\x31\x0A\xB7\x6C\x2F\x88", /* v1.0.1 */
+    "\x7C\xEF\x11\xD1\x3A\x96\xBA\x1C\x1C\x73\x42\x91\xF3\xFC\xBF\x20", /* v1.0.3 */
+    "\x91\xE7\x21\x0D\xFA\x4D\x19\xF8\x06\x1E\xAC\x96\xC7\x0D\x41\x13", /* v1.1.0 and v1.1.1 */
     "\x66\x66\x76\xDC\x1D\x32\xB2\x46\xA6\xC9\x7D\x5A\x61\xD3\x49\x4C", /* v1.1.2 */
+    "\x14\xC5\x4C\x28\x48\x66\x04\x25\x2F\xB6\xD7\x17\x95\x2C\x97\xCE", /* v2.0.0 */
     "\x1E\xF0\xD9\xDE\xC2\x7E\xEC\x02\x7C\x15\x76\xBB\x5C\x4F\x2D\x95", /* v2.0.1 */
+    "\x9C\x84\xAD\xA4\x6B\x38\xC3\x25\xB1\x2E\x32\xA1\xD1\x33\x6D\x2D", /* v2.0.2 and v2.0.3 */
     "\x06\x85\xDF\x28\xE4\xD7\xF4\x82\xC0\x73\xB0\x53\x26\xFC\xB0\xFE", /* v2.0.4 */
     "\x60\x80\x7D\x33\xA8\xDE\xF8\x49\xBB\xBE\x01\x45\xFF\x62\x40\x19"  /* v2.0.5 */
 };

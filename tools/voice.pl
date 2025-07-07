@@ -29,6 +29,7 @@ use DirHandle;
 use open ':encoding(utf8)';
 use Encode::Locale;
 use Encode;
+use Unicode::Normalize;
 
 sub printusage {
     print <<USAGE
@@ -96,19 +97,26 @@ my %gtts_lang_map = (
     'eesti' => '-l et',
     'english-us' => '-l en -t us',
     'espanol' => '-l es',
+#    'espanol' => '-l es -t mx',
     'francais' => '-l fr',
     'greek' => '-l el',
     'italiano' => '-l it',
+    'japanese' => '-l ja',
     'korean' => '-l ko',
+    'latviesu' => '-l lv',
     'magyar' => '-l hu',
+    'moldoveneste' => '-l ro -t md',
     'nederlands' => '-l nl',
     'norsk' => '-l no',
     'polski' => '-l pl',
+    'portugues-brasileiro' => '-l pt -t br',
+    'romaneste' => '-l ro',
     'russian' => '-l ru',
     'slovak' => '-l sk',
     'srpski' => '-l sr',
     'svenska' => '-l sv',
     'turkce' => '-l tr',
+    'ukrainian' => '-l uk',
 );
 
 my %espeak_lang_map = (
@@ -121,20 +129,26 @@ my %espeak_lang_map = (
     'eesti' => '-vet',
     'english-us' => '-ven-us -k 5',
     'espanol' => '-ves',
+#    'espanol' => '-ves -k 6',
     'francais' => '-vfr-fr',
     'greek' => '-vel',
     'italiano' => '-vit',
     'japanese' => '-vja',
     'korean' => '-vko',
+    'latviesu' => '-vlv',
     'magyar' => '-vhu',
+    'moldoveneste' => 'vro',
     'nederlands' => '-vnl',
     'norsk' => '-vno',
     'polski' => '-vpl',
+    'portugues-brasileiro' => '-vpt-br',
+    'romaneste' => '-vro',
     'russian' => '-vru',
     'slovak' => '-vsk',
     'srpski' => '-vsr',
     'svenska' => '-vsv',
     'turkce' => '-vtr',
+    'ukrainian' => '-vuk',
     );
 
 my %piper_lang_map = (
@@ -147,20 +161,26 @@ my %piper_lang_map = (
 #    'eesti' => '-vet',
     'english-us' => 'en_US-lessac-high.onnx',
     'espanol' => 'es_ES-sharvard-medium.onnx',
+#    'espanol' => 'es_MX-claude-high.onnx',
     'francais' => 'fr_FR-siwis-medium.onnx',
     'greek' => 'el_GR-rapunzelina-low.onnx',
     'italiano' => 'it_IT-paola-medium.onnx',
 #    'japanese' => '-vja',
 #    'korean' => '-vko',
+    'latviesu' => 'lv_LV-aivars-medium.onnx',
     'magyar' => 'hu_HU-anna-medium.onnx',
     'nederlands' => 'nl_NL-mls-medium.onnx',
+    'moldoveneste' => 'ro_RO-mihai-medium.onnx',
     'norsk' => 'no_NO-talesyntese-medium.onnx',
     'polski' => 'pl_PL-gosia-medium.onnx',
+    'portugues-brasileiro' => 'pt_BR-faber-medium.onnx',
     'russian' => 'ru_RU-irina-medium.onnx',
+    'romaneste' => 'ro_RO-mihai-medium.onnx',
     'slovak' => 'sk_SK-lili-medium.onnx',
     'srpski' => 'sr_RS-serbski_institut-medium.onnx',
     'svenska' => 'sv_SE-nst-medium.onnx',
     'turkce' => 'tr_TR-fettah-medium.onnx',
+    'ukrainian' => 'uk_UA-ukrainian_tts-medium',
 );
 
 my $trim_thresh = 250;   # Trim silence if over this, in ms
@@ -280,6 +300,9 @@ sub voicestring {
     my $name = $$tts_object{'name'};
 
     $tts_engine_opts .= $$tts_object{"ttsoptions"};
+
+    # Normalize Unicode
+    $string = NFC($string);
 
     printf("Generate \"%s\" with %s in file %s\n", $string, $name, $output) if $verbose;
     if ($name eq 'festival') {
@@ -583,21 +606,22 @@ sub panic_cleanup {
 # Generate .talk clips
 sub gentalkclips {
     our $verbose;
-    my ($dir, $tts_object, $encoder, $encoder_opts, $tts_engine_opts, $i) = @_;
+    my ($dir, $tts_object, $language, $encoder, $encoder_opts, $tts_engine_opts, $i) = @_;
     my $d = new DirHandle $dir;
+
     while (my $file = $d->read) {
 	$file = Encode::decode( locale_fs => $file);
         my ($voice, $wav, $enc);
 	my $format = $tts_object->{'format'};
 
-        # Print some progress information
-        if (++$i % 10 == 0 and !$verbose) {
-            print(".");
-        }
-
         # Ignore dot-dirs and talk files
         if ($file eq '.' || $file eq '..' || $file =~ /\.talk$/) {
             next;
+        }
+
+        # Print some progress information
+        if (++$i % 10 == 0 and !$verbose) {
+            print(".");
         }
 
         $voice = $file;
@@ -613,14 +637,17 @@ sub gentalkclips {
         if ( -d $path) { # Element is a dir
 	    $enc = sprintf("%s/_dirname.talk", $path);
             if (! -e "$path/talkclips.ignore") { # Skip directories containing "talkclips.ignore"
-                gentalkclips($path, $tts_object, $encoder, $encoder_opts, $tts_engine_opts, $i);
+                gentalkclips($path, $tts_object, $language, $encoder, $encoder_opts, $tts_engine_opts, $i);
             }
         } else { # Element is a file
             $enc = sprintf("%s.talk", $path);
             $voice =~ s/\.[^\.]*$//; # Trim extension
         }
 
-        printf("Talkclip %s: %s", $enc, $voice) if $verbose;
+	# Apply corrections
+	$voice = correct_string($voice, $language, $tts_object);
+
+        printf("Talkclip %s: %s\n", $enc, $voice) if $verbose;
 	# Don't generate encoded file if it already exists
 	next if (-f $enc && !$force);
 
@@ -674,10 +701,13 @@ if (defined($v) or defined($ENV{'V'})) {
 # add the tools dir to the path temporarily, for calling various tools
 $ENV{'PATH'} = dirname($0) . ':' . $ENV{'PATH'};
 
+# logging needs to be UTF8
+binmode(*STDOUT, ':encoding(utf8)');
+
 my $tts_object = init_tts($s, $S, $l);
 
 # Do what we're told
-if ($V == 1) {
+if (defined($V) && $V == 1) {
     # Only do the panic cleanup for voicefiles
     $SIG{INT} = \&panic_cleanup;
     $SIG{KILL} = \&panic_cleanup;
@@ -691,7 +721,7 @@ if ($V == 1) {
     deleteencs();
 } elsif ($C) {
     printf("Generating .talk clips\n  Path: %s\n  Language: %s\n  Encoder (options): %s (%s)\n  TTS Engine (options): %s (%s)\n", $ARGV[0], $l, $e, $E, $s, $S);
-    gentalkclips($ARGV[0], $tts_object, $e, $E, $S, 0);
+    gentalkclips($ARGV[0], $tts_object, $l, $e, $E, $S, 0);
     shutdown_tts($tts_object);
 } else {
     printusage();

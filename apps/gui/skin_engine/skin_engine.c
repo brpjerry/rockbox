@@ -53,16 +53,24 @@ static bool skins_initialised = false;
 static char* get_skin_filename(char *buf, size_t buf_size,
                                enum skinnable_screens skin, enum screen_type screen);
 
-static struct gui_skin_helper {
-    int (*preproccess)(enum screen_type screen, struct wps_data *data);
-    int (*postproccess)(enum screen_type screen, struct wps_data *data);
+struct gui_skin_helper {
+    void (*process)(enum screen_type screen, struct wps_data *data, bool preprocess);
     char* (*default_skin)(enum screen_type screen);
     bool load_on_boot;
-} skin_helpers[SKINNABLE_SCREENS_COUNT] = {
-    [CUSTOM_STATUSBAR] = { sb_preproccess, sb_postproccess, sb_create_from_settings, true },
-    [WPS] = { NULL, NULL, wps_default_skin, true },
+};
+
+void dummy_process(enum screen_type screen, struct wps_data *data, bool preprocess)
+{ (void)screen, (void)data, (void)preprocess; } /* dummy replaces conditionals */
+
+static const struct gui_skin_helper empty_skin_helper = {&dummy_process,NULL,false};
+static const struct gui_skin_helper * const skin_helpers[SKINNABLE_SCREENS_COUNT] =
+{
+#define SKH(proc, def, lob) &((struct gui_skin_helper){proc, def, lob})
+    &empty_skin_helper,
+    [CUSTOM_STATUSBAR] = SKH(sb_process, sb_create_from_settings, true),
+    [WPS] =  SKH(dummy_process, wps_default_skin, true),
 #if CONFIG_TUNER
-    [FM_SCREEN] = { NULL, NULL, default_radio_skin, false }
+    [FM_SCREEN] = SKH(dummy_process, default_radio_skin, false),
 #endif
 };
 
@@ -71,7 +79,6 @@ static struct gui_skin {
     struct wps_data     data;
     struct skin_stats   stats;
     bool                failsafe_loaded;
-
     bool                needs_full_update;
 } skins[SKINNABLE_SCREENS_COUNT][NB_SCREENS];
 
@@ -172,6 +179,16 @@ void settings_apply_skins(void)
         audio_stop();
 
     bool first_run = skin_backdrop_init();
+    
+    if (!first_run)
+    {
+        /* Make sure all skins unloaded */
+        for (i=0; i<SKINNABLE_SCREENS_COUNT; i++)
+        {
+            FOR_NB_SCREENS(j)
+                skin_reset_buffers(i, j);
+        }
+    }
     skins_initialised = true;
 
     /* Make sure each skin is loaded */
@@ -180,14 +197,9 @@ void settings_apply_skins(void)
         FOR_NB_SCREENS(j)
         {
             get_skin_filename(filename, MAX_PATH, i,j);
-
-            if (!first_run)
-            {
-                skin_reset_buffers(i, j);
-            }
             gui_skin_reset(&skins[i][j]);
             skins[i][j].gui_wps.display = &screens[j];
-            if (skin_helpers[i].load_on_boot)
+            if (skin_helpers[i]->load_on_boot)
                 skin_get_gwps(i, j);
         }
     }
@@ -206,24 +218,22 @@ void skin_load(enum skinnable_screens skin, enum screen_type screen,
 {
     bool loaded = false;
 
-    if (skin_helpers[skin].preproccess)
-        skin_helpers[skin].preproccess(screen, &skins[skin][screen].data);
+    skin_helpers[skin]->process(screen, &skins[skin][screen].data, true);
 
     if (buf && *buf)
         loaded = skin_data_load(screen, &skins[skin][screen].data, buf, isfile,
                                 &skins[skin][screen].stats);
 
-    if (!loaded && skin_helpers[skin].default_skin)
+    if (!loaded && skin_helpers[skin]->default_skin)
     {
         loaded = skin_data_load(screen, &skins[skin][screen].data,
-                                skin_helpers[skin].default_skin(screen), false,
+                                skin_helpers[skin]->default_skin(screen), false,
                                 &skins[skin][screen].stats);
         skins[skin][screen].failsafe_loaded = loaded;
     }
 
     skins[skin][screen].needs_full_update = true;
-    if (skin_helpers[skin].postproccess)
-        skin_helpers[skin].postproccess(screen, &skins[skin][screen].data);
+    skin_helpers[skin]->process(screen, &skins[skin][screen].data, false);
 #ifdef HAVE_BACKDROP_IMAGE
     if (loaded)
         skin_backdrops_preload();
@@ -342,7 +352,7 @@ bool dbg_skin_engine(void)
     int path_prefix_len = strlen(ROCKBOX_DIR "/wps/");
 #endif
     simplelist_info_init(&info, "Skin engine usage", 0, NULL);
-    simplelist_set_line_count(0);
+    simplelist_reset_lines();
     FOR_NB_SCREENS(j) {
 #if NB_SCREENS > 1
         simplelist_addline("%s display:",
@@ -352,21 +362,21 @@ bool dbg_skin_engine(void)
             struct skin_stats *stats = skin_get_stats(i, j);
             if (stats->buflib_handles)
             {
-                simplelist_addline("Skin ID: %d, %d allocations",
+                simplelist_addline("Skin ID: %d, %zd allocations",
                         i, stats->buflib_handles);
-                simplelist_addline("\tskin: %d bytes",
-                        stats->tree_size);
-                simplelist_addline("\tImages: %d bytes",
-                        stats->images_size);
-                simplelist_addline("\tTotal: %d bytes",
-                        stats->tree_size + stats->images_size);
+                simplelist_addline("\t%s: %zd bytes",
+                        "Skin", stats->tree_size);
+                simplelist_addline("\t%s: %zd bytes",
+                        "Images", stats->images_size);
+                simplelist_addline("\t%s: %zd bytes",
+                        "Total", stats->tree_size + stats->images_size);
                 total += stats->tree_size + stats->images_size;
             }
         }
     }
-    simplelist_addline("Skin total usage: %d bytes", total);
+    simplelist_addline("%s usage: %d bytes", "Skin total", total);
 #if defined(HAVE_BACKDROP_IMAGE)
-    simplelist_addline("Backdrop Images:");
+    simplelist_setline("Backdrop Images:");
     i = 0;
     while (skin_backdrop_get_debug(i++, &path, &ref_count, &bytes)) {
         if (ref_count > 0) {
@@ -375,11 +385,11 @@ bool dbg_skin_engine(void)
                 path += path_prefix_len;
             simplelist_addline("%s", path);
             simplelist_addline("\tref_count: %d", ref_count);
-            simplelist_addline("\tsize: %d", bytes);
+            simplelist_addline("\tsize: %zd", bytes);
             total += bytes;
         }
     }
-    simplelist_addline("Total usage: %d bytes", total);
+    simplelist_addline("%s usage: %d bytes", "Total", total);
 #endif
     return simplelist_show_list(&info);
 }

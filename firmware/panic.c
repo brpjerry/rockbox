@@ -31,6 +31,7 @@
 #include "power.h"
 #include "system.h"
 #include "logf.h"
+#include "rbversion.h"
 
 #ifdef HAVE_RB_BACKTRACE
 #include "gcc_extensions.h"
@@ -47,7 +48,7 @@ static char panic_buf[128];
 #define LINECHARS (LCD_WIDTH/SYSFONT_WIDTH) - 2
 
 #if defined(CPU_ARM) && defined(HAVE_RB_BACKTRACE)
-void panicf_f( const char *fmt, ...);
+void panicf_f( const char *fmt, ...) USED_ATTR;
 
 /* we wrap panicf() here with naked function to catch SP value */
 void __attribute__((naked)) panicf( const char *fmt, ...)
@@ -60,7 +61,7 @@ void __attribute__((naked)) panicf( const char *fmt, ...)
 }
 
 /*
- * "Dude. This is pretty fucked-up, right here." 
+ * "Dude. This is pretty fucked-up, right here."
  */
 void panicf_f( const char *fmt, ...)
 {
@@ -85,7 +86,7 @@ void panicf( const char *fmt, ...)
 
 #if (CONFIG_PLATFORM & PLATFORM_NATIVE)
     /* Disable interrupts */
-#ifdef CPU_ARM
+#if defined(CPU_ARM_CLASSIC)
     disable_interrupt(IRQ_FIQ_STATUS);
 #else
     set_irq_level(DISABLE_INTERRUPTS);
@@ -102,14 +103,12 @@ void panicf( const char *fmt, ...)
 
 #if LCD_DEPTH > 1
     lcd_set_backdrop(NULL);
-    lcd_set_drawmode(DRMODE_SOLID);
-    lcd_set_foreground(LCD_BLACK);
-    lcd_set_background(LCD_WHITE);
+    lcd_set_drawinfo(DRMODE_SOLID, LCD_BLACK, LCD_WHITE);
 #endif
 
     lcd_clear_display();
     lcd_setfont(FONT_SYSFIXED);
-    lcd_puts(1, y++, (unsigned char *)"*PANIC*");
+    lcd_puts(1, y++, (unsigned char *) "*PANIC* (" RBVERSION ")");
     {
         /* wrap panic line */
         int i, len = strlen(panic_buf);
@@ -138,7 +137,7 @@ void panicf( const char *fmt, ...)
         cpu_boost_unlock();
     }
 #endif /* HAVE_ADJUSTABLE_CPU_FREQ */
-    
+
 #ifdef HAVE_ATA_POWER_OFF
     ide_power_enable(false);
 #endif

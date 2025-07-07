@@ -234,10 +234,21 @@ static const char * const tag_type_str[] = {
     [clause_oneof] = "clause_oneof",
     [clause_begins_oneof] = "clause_begins_oneof",
     [clause_ends_oneof] = "clause_ends_oneof",
+    [clause_not_oneof] = "clause_not_oneof",
+    [clause_not_begins_oneof] = "clause_not_begins_oneof",
+    [clause_not_ends_oneof] = "clause_not_ends_oneof",
     [clause_logical_or] = "clause_logical_or"
  };
 #define logf_clauses logf
 #endif /* ndef LOGF_ENABLE */
+
+#if defined(PLUGIN)
+char *itoa_buf(char *buf, size_t bufsz, long int i)
+{
+    snprintf(buf, bufsz, "%ld", i);
+    return buf;
+}
+#endif
 
 /* Status information of the tagcache. */
 static struct tagcache_stat tc_stat;
@@ -946,7 +957,7 @@ static long find_entry_disk(const char *filename_raw, bool localfd)
         }
 
         idx = -4;
-    }     
+    }
 
     if (fd != filenametag_fd || localfd)
         close(fd);
@@ -970,6 +981,7 @@ static int find_index(const char *filename)
 
 bool tagcache_find_index(struct tagcache_search *tcs, const char *filename)
 {
+    /* NOTE: on ret==true you need to call tagcache_search_finish(tcs) yourself */
     int idx_id;
 
     if (!tc_stat.ready)
@@ -1226,7 +1238,7 @@ static long tc_find_tag(int tag, int idx_id, const struct index_entry *idx)
         if (result >= 0)
         {
             logf("tc_find_tag: Recovered tag %d value %lX from write queue",
-                 tag, result);
+                 tag, (unsigned long) result);
             return result;
         }
     }
@@ -1431,11 +1443,18 @@ static bool check_against_clause(long numeric, const char *str,
                 return !str_ends_with(str, clause->str);
             case clause_oneof:
                 return str_oneof(str, clause->str);
+            case clause_not_oneof:
+                return !str_oneof(str, clause->str);
             case clause_ends_oneof:
                 /* Fall-Through */
             case clause_begins_oneof:
                 return str_begins_ends_oneof(str, clause->str,
                                              clause->type == clause_begins_oneof);
+            case clause_not_ends_oneof:
+                /* Fall-Through */
+            case clause_not_begins_oneof:
+                return !str_begins_ends_oneof(str, clause->str,
+                                            clause->type == clause_not_begins_oneof);
             default:
                 logf("Incorrect tag: %d", clause->type);
         }
@@ -1721,6 +1740,7 @@ static bool build_lookup_list(struct tagcache_search *tcs)
 
 bool tagcache_search(struct tagcache_search *tcs, int tag)
 {
+    /* NOTE: call tagcache_search_finish(&tcs) when finished or BAD things may happen (TM) */
     struct tagcache_header tag_hdr;
     struct master_header   master_hdr;
     int i;
@@ -1910,7 +1930,7 @@ static bool get_next(struct tagcache_search *tcs, bool is_numeric, char *buf, lo
 
     if (is_numeric)
     {
-        snprintf(buf, bufsz, "%ld", tcs->position);
+        itoa_buf(buf, bufsz, tcs->position);
         tcs->result = buf;
         tcs->result_len = strlen(buf) + 1;
         return true;
@@ -1976,7 +1996,7 @@ static bool get_next(struct tagcache_search *tcs, bool is_numeric, char *buf, lo
         case e_TAG_TOOLONG:
             tcs->valid = false;
             logf("too long tag #2");
-            logf("P:%lX/%lX", tcs->position, entry.tag_length);
+            logf("P:%lX/%" PRIX32, (unsigned long) tcs->position, entry.tag_length);
             return false;
         case e_TAG_SIZEMISMATCH:
             tcs->valid = false;
@@ -2096,7 +2116,7 @@ bool tagcache_fill_tags(struct mp3entry *id3, const char *filename)
         return false;
 
     entry = &tcramcache.hdr->indices[idx_id];
-   
+
     char* buf = id3->id3v2buf;
     ssize_t remaining = sizeof(id3->id3v2buf);
 
@@ -2408,7 +2428,7 @@ static bool tempbuf_insert(char *str, int id, int idx_id, bool unique)
     tempbuf_left -= len;
     if (tempbuf_left - 4 < 0 || tempbufidx >= commit_entry_count)
     {
-        logf("temp buf error rem: %ld idx: %d / %d",
+        logf("temp buf error rem: %ld idx: %ld / %ld",
              tempbuf_left, tempbufidx, commit_entry_count-1);
         return false;
     }
@@ -2789,7 +2809,7 @@ static bool build_numeric_indices(struct tagcache_header *h, int tmpfd)
         }
 
         entries_processed += count;
-        logf("%d/%ld entries processed", entries_processed, h->entry_count);
+        logf("%d/%" PRId32 " entries processed", entries_processed, h->entry_count);
     }
 
     close(masterfd);
@@ -2833,7 +2853,7 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
     fd = open_tag_fd(&tch, index_type, true);
     if (fd >= 0)
     {
-        logf("tch.datasize=%ld", tch.datasize);
+        logf("tch.datasize=%" PRId32, tch.datasize);
         lookup_buffer_depth = 1 +
         /* First part */ commit_entry_count +
         /* Second part */ (tch.datasize / TAGFILE_ENTRY_CHUNK_LENGTH);
@@ -3148,7 +3168,7 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
 
                 if (idxbuf[j].tag_seek[index_type] < 0)
                 {
-                    logf("update error: %ld/%d/%ld",
+                    logf("update error: %" PRId32 "/%d/%" PRId32,
                          idxbuf[j].flag, i+j, tcmh.tch.entry_count);
                     error = true;
                     goto error_exit;
@@ -3221,7 +3241,7 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
                 {
                     logf("too long entry!");
                     logf("length=%d", entry.tag_length[index_type]);
-                    logf("pos=0x%02lx", lseek(tmpfd, 0, SEEK_CUR));
+                    logf("pos=0x%02lx", (unsigned long) lseek(tmpfd, 0, SEEK_CUR));
                     error = true;
                     break ;
                 }
@@ -3231,7 +3251,7 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
                     entry.tag_length[index_type])
                 {
                     logf("read fail #8");
-                    logf("offset=0x%02lx", entry.tag_offset[index_type]);
+                    logf("offset=0x%02" PRIx32, entry.tag_offset[index_type]);
                     logf("length=0x%02x", entry.tag_length[index_type]);
                     error = true;
                     break ;
@@ -3284,7 +3304,7 @@ static int build_index(int index_type, struct tagcache_header *h, int tmpfd)
 
     if (index_type != tag_filename)
         h->datasize += tch.datasize;
-    logf("s:%d/%ld/%ld", index_type, tch.datasize, h->datasize);
+    logf("s:%d/%" PRId32 "/%" PRId32, index_type, tch.datasize, h->datasize);
     error_exit:
 
     close(fd);
@@ -3321,7 +3341,7 @@ static bool commit(void)
         logf("canceling commit");
         tc_stat.commit_delayed = true;
         close(fd);
-        tmpfd = -1;      
+        tmpfd = -1;
     }
     else
 #endif /*!defined(PLUGIN)*/
@@ -3406,7 +3426,7 @@ static bool commit(void)
         goto commit_error;
     }
 
-    logf("commit %ld entries...", tch.entry_count);
+    logf("commit %" PRId32 " entries...", tch.entry_count);
 
     /* Mark DB dirty so it will stay disabled if commit fails. */
     current_tcmh.dirty = true;
@@ -3744,7 +3764,7 @@ static bool read_tag(char *dest, long size,
                 return false;
         }
 
-        str_setlen(current_tag, pos); 
+        str_setlen(current_tag, pos);
 
         /* Read in tag data */
 
@@ -3785,7 +3805,7 @@ static bool read_tag(char *dest, long size,
             dest[pos] = *(src++);
         }
 
-        str_setlen(dest, pos); 
+        str_setlen(dest, pos);
 
         if (!strcasecmp(tagstr, current_tag))
             return true;
@@ -3893,7 +3913,7 @@ bool tagcache_import_changelog(void)
     write_lock++;
 
     filenametag_fd = open_tag_fd(&tch, tag_filename, false);
-    
+
     fast_readline(clfd, buf, bufsz, (void *)(intptr_t)masterfd,
                   parse_changelog_line);
 
@@ -3936,6 +3956,7 @@ bool tagcache_create_changelog(struct tagcache_search *tcs)
     if (clfd < 0)
     {
         logf("failure to open changelog");
+        tagcache_search_finish(tcs);
         return false;
     }
 
@@ -3944,6 +3965,7 @@ bool tagcache_create_changelog(struct tagcache_search *tcs)
         if ( (tcs->masterfd = open_master_fd(&myhdr, false)) < 0)
         {
             close(clfd);
+            tagcache_search_finish(tcs);
             return false;
         }
     }
@@ -3978,7 +4000,7 @@ bool tagcache_create_changelog(struct tagcache_search *tcs)
         {
             if (TAGCACHE_IS_NUMERIC(j))
             {
-                snprintf(temp, sizeof temp, "%d", (int)idx.tag_seek[j]);
+                itoa_buf(temp, sizeof temp, (int)idx.tag_seek[j]);
                 write_tag(clfd, tagcache_tag_to_str(j), temp);
                 continue;
             }
@@ -4154,7 +4176,7 @@ static bool delete_entry(long idx_id)
         {
             struct tagfile_entry *tagentry =
                     (struct tagfile_entry *)&tcramcache.hdr->tags[tag][oldseek];
-            str_setlen(tagentry->tag_data, 0); 
+            str_setlen(tagentry->tag_data, 0);
         }
 #endif /* HAVE_TC_RAMCACHE */
 
@@ -4512,8 +4534,8 @@ static bool load_tagcache(void)
                 if (idx->tag_seek[tag] != pos)
                 {
                     logf("corrupt data structures!:");
-                    logf("  tag_seek[%d]=%ld:pos=%ld", tag,
-                         idx->tag_seek[tag], pos);
+                    logf("  tag_seek[%d]=%" PRId32 ":pos=%ld", tag,
+                         idx->tag_seek[tag], (long) pos);
                     goto failure;
                 }
             }
@@ -4570,8 +4592,8 @@ static bool load_tagcache(void)
             if (bytesleft < 0)
             {
                 logf("too big tagcache #2");
-                logf("tl: %ld", fe->tag_length);
-                logf("bl: %ld", bytesleft);
+                logf("tl: %" PRId32, fe->tag_length);
+                logf("bl: %ld", (long) bytesleft);
                 goto failure;
             }
 
@@ -4583,8 +4605,8 @@ static bool load_tagcache(void)
             {
                 logf("read error #13");
                 logf("rc=0x%04x", (unsigned int)rc); // 0x431
-                logf("len=0x%04lx", fe->tag_length); // 0x4000
-                logf("pos=0x%04lx", lseek(fd, 0, SEEK_CUR)); // 0x433
+                logf("len=0x%04" PRIx32, fe->tag_length); // 0x4000
+                logf("pos=0x%04lx", (unsigned long) lseek(fd, 0, SEEK_CUR)); // 0x433
                 logf("tag=0x%02x", tag); // 0x00
                 goto failure;
             }
@@ -4621,7 +4643,7 @@ static bool check_file_refs(bool auto_update)
     const int bufsz = sizeof(buf);
     struct tagfile_entry tfe;
     struct tagcache_header hdr;
-    
+
     logf("reverse scan...");
 
 #ifdef HAVE_DIRCACHE
@@ -4703,7 +4725,7 @@ static bool check_file_refs(bool auto_update)
 #endif /* HAVE_DIRCACHE */
         {
             logf("Entry no longer valid.");
-            logf("-> %s / %ld", buf, tfe.tag_length);
+            logf("-> %s / %" PRId32, buf, tfe.tag_length);
             delete_entry(idx_id);
         }
 
@@ -5172,11 +5194,13 @@ static void tagcache_thread(void)
      * the changes first in foreground. */
     if (db_file_exists(TAGCACHE_FILE_TEMP))
     {
+#if !(defined(__APPLE__) && (CONFIG_PLATFORM & PLATFORM_SDL))
         static const char *lines[] = {ID2P(LANG_TAGCACHE_BUSY),
                                       ID2P(LANG_TAGCACHE_UPDATE)};
         static const struct text_message message = {lines, 2};
 
         if (gui_syncyesno_run_w_tmo(HZ * 5, YESNO_YES, &message, NULL, NULL) == YESNO_YES)
+#endif
         {
             allocate_tempbuf();
             commit();

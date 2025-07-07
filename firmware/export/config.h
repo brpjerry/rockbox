@@ -72,6 +72,10 @@
 #define S5L8700      8700
 #define S5L8701      8701
 #define S5L8702      8702
+#define S5L8720      8720
+#define S5L8723      8723
+#define S5L8730      8730
+#define S5L8740      8740
 #define JZ4732       4732
 #define JZ4760B     47602
 #define AS3525       3525
@@ -80,6 +84,7 @@
 #define IMX233        233
 #define RK27XX       2700
 #define X1000        1000
+#define STM32H743   32743
 
 /* platforms
  * bit fields to allow PLATFORM_HOSTED to be OR'ed e.g. with a
@@ -159,6 +164,8 @@
 #define EROSQ_PAD          72
 #define FIIO_M3K_PAD       73
 #define SHANLING_Q1_PAD    74
+#define ECHO_R1_PAD        75
+#define SURFANS_F28_PAD    76
 
 /* CONFIG_REMOTE_KEYPAD */
 #define H100_REMOTE   1
@@ -200,6 +207,9 @@
                             * use the charging hardware. */
 
 /* CONFIG_BATTERY_MEASURE bits */
+/* If both VOLTAGE_MEASURE and PERCENTAGE_MEASURE are defined,
+ * _battery_level() (percentage) will be preferred, unless _battery_level()
+ * returns -1, then voltage will be used from _voltage_level(). */
 #define VOLTAGE_MEASURE     1 /* Target can report battery voltage
                                * Usually native ports */
 #define PERCENTAGE_MEASURE  2 /* Target can report remaining capacity in %
@@ -246,7 +256,7 @@
 #define LCD_MINI2440  37 /* as used by the Mini2440 */
 #define LCD_HDD6330   38 /* as used by the Philips HDD6330 */
 #define LCD_VIBE500   39 /* as used by the Packard Bell Vibe 500 */
-#define LCD_IPOD6G    40 /* as used by the iPod Nano 2nd Generation */
+#define LCD_IPOD6GNANO3G4G   40 /* as used by the iPod Classic, Nano 3G and Nano 4G */
 #define LCD_FUZEPLUS  41
 #define LCD_SPFD5420A 42 /* rk27xx */
 #define LCD_CLIPZIP   43 /* as used by the Sandisk Sansa Clip Zip */
@@ -275,6 +285,7 @@
 #define LCD_FIIOM3K       69 /* as used by the FiiO M3K */
 #define LCD_SHANLING_Q1   70 /* as used by the Shanling Q1 */
 #define LCD_EROSQ         71 /* as used by the ErosQ (native) */
+#define LCD_ECHO_R1       72 /* ILI9342, as used by the Echo R1 */
 
 /* LCD_PIXELFORMAT */
 #define HORIZONTAL_PACKING 1
@@ -350,6 +361,9 @@ Lyre prototype 1 */
 #define RTC_JZ4760   22 /* Ingenic Jz4760 */
 #define RTC_X1000    23 /* Ingenic X1000 */
 #define RTC_CONNECT  24 /* Sansa Connect AVR */
+#define RTC_NANO3G   25 /* Dialog Semiconductor D1671 ??? */
+#define RTC_NANO4G   26 /* Dialog Semiconductor D1759 ??? */
+#define RTC_STM32H743 27
 
 /* USB On-the-go */
 #define USBOTG_M66591   6591 /* M:Robe 500 */
@@ -411,6 +425,10 @@ Lyre prototype 1 */
 #include "config/ipod4g.h"
 #elif defined(IPOD_NANO2G)
 #include "config/ipodnano2g.h"
+#elif defined(IPOD_NANO3G)
+#include "config/ipodnano3g.h"
+#elif defined(IPOD_NANO4G)
+#include "config/ipodnano4g.h"
 #elif defined(IPOD_6G)
 #include "config/ipod6g.h"
 #elif defined(GIGABEAT_F)
@@ -597,6 +615,10 @@ Lyre prototype 1 */
 #include "config/shanlingq1.h"
 #elif defined(EROS_QN)
 #include "config/erosqnative.h"
+#elif defined(ECHO_R1)
+#include "config/echor1.h"
+#elif defined(SURFANS_F28)
+#include "config/surfansf28.h"
 #else
 //#error "unknown hwardware platform!"
 #endif
@@ -635,6 +657,12 @@ Lyre prototype 1 */
 #endif
 #endif
 
+#if defined(__PCTOOL__) || defined(SIMULATOR)
+#ifndef CONFIG_PLATFORM
+#define CONFIG_PLATFORM PLATFORM_HOSTED
+#endif
+#endif
+
 #ifndef CONFIG_PLATFORM
 #define CONFIG_PLATFORM PLATFORM_NATIVE
 #endif
@@ -660,9 +688,12 @@ Lyre prototype 1 */
 #define CPU_PP502x
 #endif
 
-/* define for all cpus from S5L870X family */
-#if (CONFIG_CPU == S5L8700) || (CONFIG_CPU == S5L8701) || (CONFIG_CPU == S5L8702)
-#define CPU_S5L870X
+/* define for all cpus from S5L87XX family */
+#if (CONFIG_CPU == S5L8700) || (CONFIG_CPU == S5L8701) \
+    || (CONFIG_CPU == S5L8702) || (CONFIG_CPU == S5L8720) \
+    || (CONFIG_CPU == S5L8723) || (CONFIG_CPU == S5L8730) \
+    || (CONFIG_CPU == S5L8740)
+#define CPU_S5L87XX
 #endif
 
 /* define for all cpus from TCC780 family */
@@ -678,7 +709,19 @@ Lyre prototype 1 */
 /* define for all cpus from ARM family */
 #if ARCH == ARCH_ARM
 #define CPU_ARM
-#define ARM_ARCH ARCH_VERSION /* ARMv{4,5,6,7} */
+#define ARM_ARCH    ARCH_VERSION /* ARMv{4,5,6,7} */
+#define ARM_PROFILE ARCH_PROFILE /* Classic, Microcontroller */
+# if ARM_PROFILE == ARM_PROFILE_MICRO
+#  define CPU_ARM_MICRO
+#  if (ARM_ARCH >= 7)
+#   define ARM_HAVE_HW_DIV
+#  endif
+# elif ARM_PROFILE == ARM_PROFILE_CLASSIC
+#  define CPU_ARM_CLASSIC
+# endif
+# if (CONFIG_PLATFORM & PLATFORM_NATIVE)
+#  define ARM_NEED_DIV0
+# endif
 #endif
 
 #if ARCH == ARCH_MIPS
@@ -721,10 +764,6 @@ Lyre prototype 1 */
 
 #ifndef CONFIG_RTC
 #define CONFIG_RTC 0
-#endif
-
-#ifndef BATTERY_TYPES_COUNT
-#define BATTERY_TYPES_COUNT 0
 #endif
 
 #ifndef BATTERY_CAPACITY_DEFAULT
@@ -918,6 +957,13 @@ Lyre prototype 1 */
 
 #define NUM_VOLUMES (NUM_DRIVES * NUM_VOLUMES_PER_DRIVE)
 
+/* Sanity check sector size options */
+#if defined(MAX_VARIABLE_LOG_SECTOR) && defined(MAX_VIRT_SECTOR_SIZE)
+#if (MAX_VIRT_SECTOR_SIZE < MAX_VARIABLE_LOG_SECTOR)
+#error "optional MAX_VIRT_SECTOR_SIZE must be at least as large as MAX_VARIABLE_LOG_SECTOR"
+#endif
+#endif
+
 #if defined(BOOTLOADER) && defined(HAVE_ADJUSTABLE_CPU_FREQ)
 /* Bootloaders don't use CPU frequency adjustment */
 #undef HAVE_ADJUSTABLE_CPU_FREQ
@@ -950,7 +996,7 @@ Lyre prototype 1 */
 /* Priority in bootloader is wanted */
 #define HAVE_PRIORITY_SCHEDULING
 
-#if (CONFIG_CPU == S5L8702)
+#if (CONFIG_CPU == S5L8702) || (CONFIG_CPU == S5L8720)
 #define USB_DRIVER_CLOSE
 #else
 #define USB_STATUS_BY_EVENT
@@ -1016,7 +1062,7 @@ Lyre prototype 1 */
 
 #if defined(HAVE_USBSTACK) || (CONFIG_CPU == JZ4732) || (CONFIG_CPU == JZ4760B) \
     || (CONFIG_CPU == AS3525) || (CONFIG_CPU == AS3525v2) \
-    || defined(CPU_S5L870X) || (CONFIG_CPU == S3C2440) \
+    || defined(CPU_S5L87XX) || (CONFIG_CPU == S3C2440) \
     || defined(APPLICATION) || (CONFIG_CPU == PP5002) \
     || (CONFIG_CPU == RK27XX) || (CONFIG_CPU == IMX233) ||              \
     (defined(HAVE_LCD_COLOR) && (LCD_STRIDEFORMAT == HORIZONTAL_STRIDE))
@@ -1033,12 +1079,25 @@ Lyre prototype 1 */
 #define ROCKBOX_STRICT_ALIGN 1
 #endif
 
+/* -Wunterminates-string-initialization will complain if we try to shove
+  a "string" into an array that is too small.  Sometimes this actually
+  intentional, where you are merely using "string" as a standin for
+  "non-terminated sequence of bytes" -- in which case we need to mark
+  the "string" as "not actually a string" with an attribute.  Applies to
+  GCC >=8, but this warning isn't pulled in by -Wextra until >= 15.
+*/
+#if __GNUC__ >= 8
+#define __NONSTRING __attribute__((__nonstring__))
+#else
+#define __NONSTRING
+#endif
+
 /*
  * These macros are for switching on unified syntax in inline assembly.
  * Older versions of GCC emit assembly in divided syntax with no option
  * to enable unified syntax.
  */
-#if (__GNUC__ < 8)
+#if (__GNUC__ < 8) && defined(CPU_ARM_CLASSIC)
 #define BEGIN_ARM_ASM_SYNTAX_UNIFIED ".syntax unified\n"
 #define END_ARM_ASM_SYNTAX_UNIFIED   ".syntax divided\n"
 #else
@@ -1105,7 +1164,7 @@ Lyre prototype 1 */
     (CONFIG_CPU == PNX0101) || \
     (CONFIG_CPU == TCC7801) || \
     (CONFIG_CPU == IMX233 && !defined(PLUGIN) && !defined(CODEC)) || /* IMX233: core only */ \
-    defined(CPU_S5L870X)) || /* Samsung S5L8700: core, plugins, codecs */ \
+    defined(CPU_S5L87XX)) || /* Samsung S5L87XX: core, plugins, codecs */ \
     ((CONFIG_CPU == JZ4732 || CONFIG_CPU == JZ4760B) && !defined(PLUGIN) && !defined(CODEC)) /* Jz47XX: core only */
 #define ICODE_ATTR      __attribute__ ((section(".icode")))
 #define ICONST_ATTR     __attribute__ ((section(".irodata")))
@@ -1253,9 +1312,13 @@ Lyre prototype 1 */
 # define INCLUDE_TIMEOUT_API
 #endif
 
-#ifndef SIMULATOR
-#if defined(HAVE_USBSTACK) || (CONFIG_STORAGE & STORAGE_NAND) || (CONFIG_STORAGE & STORAGE_RAMDISK)
+#if (!defined(SIMULATOR) && !defined(HAVE_HOSTFS) && !(CONFIG_STORAGE & STORAGE_HOSTFS))
 #define STORAGE_GET_INFO
+#endif
+
+#if defined(HAVE_SIGALTSTACK_THREADS)
+#ifndef _XOPEN_SOURCE
+#define _XOPEN_SOURCE 600   /* For sigaltstack */
 #endif
 #endif
 
@@ -1338,7 +1401,9 @@ Lyre prototype 1 */
 #define HAVE_PCM_FULL_DUPLEX
 #endif
 
+#if !defined(BOOTLOADER)
 #define HAVE_PITCHCONTROL
+#endif
 
 /* enable logging messages to disk*/
 #if !defined(BOOTLOADER) && !defined(__PCTOOL__)

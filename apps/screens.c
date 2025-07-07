@@ -55,6 +55,7 @@
 #include "replaygain.h"
 
 #include "ctype.h"
+#include "plugin.h"
 
 #if CONFIG_CHARGING
 void charging_splash(void)
@@ -518,7 +519,7 @@ static const char * id3_get_or_speak_info(int selected_item, void* data,
             case LANG_TAGNAVI_ALL_TRACKS:
                 if (info->track_ct <= 1)
                     return NULL;
-                snprintf(buffer, buffer_len, "%d", info->track_ct);
+                itoa_buf(buffer, buffer_len, info->track_ct);
                 val = buffer;
                 if(say_it)
                     talk_number(info->track_ct, true);
@@ -557,7 +558,7 @@ static const char * id3_get_or_speak_info(int selected_item, void* data,
                 }
                 else if (id3->discnum)
                 {
-                    snprintf(buffer, buffer_len, "%d", id3->discnum);
+                    itoa_buf(buffer, buffer_len, id3->discnum);
                     val = buffer;
                     if(say_it)
                         talk_number(id3->discnum, true);
@@ -572,7 +573,7 @@ static const char * id3_get_or_speak_info(int selected_item, void* data,
                 }
                 else if (id3->tracknum)
                 {
-                    snprintf(buffer, buffer_len, "%d", id3->tracknum);
+                    itoa_buf(buffer, buffer_len, id3->tracknum);
                     val = buffer;
                     if(say_it)
                         talk_number(id3->tracknum, true);
@@ -582,9 +583,8 @@ static const char * id3_get_or_speak_info(int selected_item, void* data,
                 if (!id3->comment)
                     return NULL;
 
-                strmemccpy(buffer, id3->comment, buffer_len);
 
-                val=buffer;
+                val = id3->comment;
                 if(say_it && val)
                     talk_spell(val, true);
                 break;
@@ -602,7 +602,7 @@ static const char * id3_get_or_speak_info(int selected_item, void* data,
                 }
                 else if (id3->year)
                 {
-                    snprintf(buffer, buffer_len, "%d", id3->year);
+                    itoa_buf(buffer, buffer_len, id3->year);
                     val = buffer;
                     if(say_it)
                         talk_value(id3->year, UNIT_DATEYEAR, true);
@@ -659,16 +659,15 @@ static const char * id3_get_or_speak_info(int selected_item, void* data,
                 if (id3->codectype == AFMT_UNKNOWN && info->track_ct > 1)
                     return NULL;
 
-                strmemccpy(buffer, get_codec_string(id3->codectype), buffer_len);
-
-                val=buffer;
+                val = (char*) get_codec_string(id3->codectype);
                 if(say_it)
                     talk_spell(val, true);
                 break;
             case LANG_ID3_BITRATE:
                 if (!id3->bitrate)
                     return NULL;
-                snprintf(buffer, buffer_len, "%d kbps%s", id3->bitrate,
+                snprintf(buffer, buffer_len, "%d kbps%s%s", id3->bitrate,
+            id3->vbr ? " " : "",
             id3->vbr ? str(LANG_ID3_VBR) : (const unsigned char*) "");
                 val=buffer;
                 if(say_it)
@@ -779,7 +778,8 @@ static int id3_speak_item(int selected_item, void* data)
  */
 bool browse_id3_ex(struct mp3entry *id3, struct playlist_info *playlist,
                 int playlist_display_index, int playlist_amount,
-                struct tm *modified, int track_ct)
+                struct tm *modified, int track_ct,
+                int (*view_text)(const char *title, const char *text))
 {
     struct gui_synclist id3_lists;
     int key;
@@ -818,7 +818,30 @@ refresh_info:
         if(!list_do_action(CONTEXT_LIST,HZ/2, &id3_lists, &key)
            && key!=ACTION_NONE && key!=ACTION_UNKNOWN)
         {
-            if (key == ACTION_STD_OK || key == ACTION_STD_CANCEL)
+            if (key == ACTION_STD_OK)
+            {
+                int header_id = id3_headers[info.info_id[id3_lists.selected_item/2]];
+                char* title_and_text[2];
+                title_and_text[0] = str(header_id);
+
+                char buffer[MAX_PATH];
+                title_and_text[1] = (char*)id3_get_or_speak_info(id3_lists.selected_item+1,&info, buffer, sizeof(buffer), false);
+
+                if (view_text)
+                {
+                    FOR_NB_SCREENS(i)
+                        viewportmanager_theme_enable(i, false, NULL);
+                    view_text(title_and_text[0], title_and_text[1]);
+                    FOR_NB_SCREENS(i)
+                        viewportmanager_theme_undo(i, false);
+                }
+                else
+                    plugin_load(VIEWERS_DIR"/view_text.rock", title_and_text);
+                gui_synclist_set_title(&id3_lists, str(LANG_TRACK_INFO), NOICON);
+                gui_synclist_draw(&id3_lists);
+                continue;
+            }
+            if (key == ACTION_STD_CANCEL)
             {
                 ret = false;
                 break;
@@ -829,7 +852,7 @@ refresh_info:
                 ret =  true;
                 break;
             }
-        } 
+        }
         else if (is_curr_track_info)
         {
             if (!audio_status())
@@ -845,16 +868,20 @@ refresh_info:
             }
         }
     }
+    FOR_NB_SCREENS(i)
+        screens[i].scroll_stop(); /* when custom lists are used */
+
     if (is_curr_track_info)
         pop_current_activity();
     return ret;
 }
 
 bool browse_id3(struct mp3entry *id3, int playlist_display_index, int playlist_amount,
-                struct tm *modified, int track_ct)
+                struct tm *modified, int track_ct,
+                int (*view_text)(const char *title, const char *text))
 {
     return browse_id3_ex(id3, NULL, playlist_display_index, playlist_amount,
-                         modified, track_ct);
+                         modified, track_ct, view_text);
 }
 
 static const char* runtime_get_data(int selected_item, void* data,
@@ -864,8 +891,12 @@ static const char* runtime_get_data(int selected_item, void* data,
     long t;
     switch (selected_item)
     {
-        case 0: return str(LANG_RUNNING_TIME);
-        case 1: t = global_status.runtime;      break;
+        case 0:return str(LANG_RUNNING_TIME);
+        case 1: {
+            update_runtime();
+             t = global_status.runtime;
+            break;
+        }
         case 2: return str(LANG_TOP_TIME);
         case 3: t = global_status.topruntime;   break;
         default:
@@ -879,57 +910,52 @@ static const char* runtime_get_data(int selected_item, void* data,
 
 static int runtime_speak_data(int selected_item, void* data)
 {
-    (void) data;
-    talk_ids(false,
-             (selected_item < 2) ? LANG_RUNNING_TIME : LANG_TOP_TIME,
+    (void)data;
+    talk_ids(false,(selected_item < 2) ? LANG_RUNNING_TIME : LANG_TOP_TIME,
              TALK_ID((selected_item < 2) ? global_status.runtime
-                     : global_status.topruntime, UNIT_TIME));
+                                         : global_status.topruntime, UNIT_TIME));
     return 0;
 }
 
+static int runtime_info_cb(int action, struct gui_synclist *lists)
+{
+    static const char *lines[]={ ID2P(LANG_RUNNING_TIME), ID2P(LANG_CLEAR_TIME),
+                                 ID2P(LANG_TOP_TIME),     ID2P(LANG_CLEAR_TIME)};
+
+    if (action == ACTION_NONE)
+        return ACTION_REDRAW;
+
+    if(action == ACTION_STD_OK) {
+        int selected = (gui_synclist_get_sel_pos(lists));
+
+        const struct text_message message={lines + selected, 2};
+
+        if(gui_syncyesno_run(&message, NULL, NULL)==YESNO_YES)
+        {
+            if (selected == 0)
+                global_status.runtime = 0;
+            else /*selected == 2*/
+                global_status.topruntime = 0;
+            gui_synclist_speak_item(lists);
+        }
+        action = ACTION_REDRAW;
+    }
+    return action;
+}
 
 int view_runtime(void)
 {
-    static const char *lines[]={ID2P(LANG_CLEAR_TIME)};
-    static const struct text_message message={lines, 1};
-    bool say_runtime = true;
+    struct simplelist_info info;
 
-    struct gui_synclist lists;
-    int action;
-    gui_synclist_init(&lists, runtime_get_data, NULL, false, 2, NULL);
-    gui_synclist_set_title(&lists, str(LANG_RUNNING_TIME), NOICON);
+    simplelist_info_init(&info, NULL, 2, NULL);
+    info.get_name = runtime_get_data;
+    info.action_callback = runtime_info_cb;
+    info.timeout = HZ;
+    info.selection_size = 2;
     if(global_settings.talk_menu)
-        gui_synclist_set_voice_callback(&lists, runtime_speak_data);
-    gui_synclist_set_nb_items(&lists, 4);
-
-    while(1)
-    {
-        global_status.runtime += ((current_tick - lasttime) / HZ);
-
-        lasttime = current_tick;
-        if (say_runtime)
-        {
-            gui_synclist_speak_item(&lists);
-            say_runtime = false;
-        }
-        gui_synclist_draw(&lists);
-        list_do_action(CONTEXT_STD, HZ, &lists, &action);
-        if(action == ACTION_STD_CANCEL)
-            break;
-        if(action == ACTION_STD_OK) {
-            if(gui_syncyesno_run(&message, NULL, NULL)==YESNO_YES)
-            {
-                if (!(gui_synclist_get_sel_pos(&lists)/2))
-                    global_status.runtime = 0;
-                else
-                    global_status.topruntime = 0;
-                say_runtime = true;
-            }
-        }
-        if(default_event_handler(action) == SYS_USB_CONNECTED)
-            return 1;
-    }
-    return 0;
+        info.get_talk = runtime_speak_data;
+    info.scroll_all = true;
+    return simplelist_show_list(&info);
 }
 
 #ifdef HAVE_TOUCHSCREEN

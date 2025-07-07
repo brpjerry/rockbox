@@ -125,7 +125,7 @@
 #define BATTERY_CAPACITY_MIN 550        /* min. capacity selectable */
 #define BATTERY_CAPACITY_MAX 550        /* max. capacity selectable */
 #define BATTERY_CAPACITY_INC 0          /* capacity increment */
-#define BATTERY_TYPES_COUNT  1          /* only one type */
+
 
 #define CONFIG_BATTERY_MEASURE VOLTAGE_MEASURE
 
@@ -168,7 +168,7 @@
 
 /* The fuze+ actually interesting partition table does not use 512-byte sector
  * (usually 2048 logical sector size) */
-#define MAX_LOG_SECTOR_SIZE 2048
+#define MAX_VIRT_SECTOR_SIZE 2048
 
 /* Define this if you have adjustable CPU frequency */
 #define HAVE_ADJUSTABLE_CPU_FREQ

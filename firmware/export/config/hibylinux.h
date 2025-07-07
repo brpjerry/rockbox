@@ -54,7 +54,7 @@
 #define MIN_BRIGHTNESS_SETTING      1
 #define MAX_BRIGHTNESS_SETTING      255
 #define BRIGHTNESS_STEP             5
-#define DEFAULT_BRIGHTNESS_SETTING  70
+#define DEFAULT_BRIGHTNESS_SETTING  255
 
 /* Which backlight fading type? */
 #define CONFIG_BACKLIGHT_FADING BACKLIGHT_FADING_SW_SETTING
@@ -86,5 +86,7 @@
 #define ROOTDRIVE_DEV "/sys/block/mmcblk0"
 
 /* More common stuff */
+#ifndef EROS_Q
 #define BATTERY_DEV_NAME "battery"
+#endif
 #define POWER_DEV_NAME "usb"

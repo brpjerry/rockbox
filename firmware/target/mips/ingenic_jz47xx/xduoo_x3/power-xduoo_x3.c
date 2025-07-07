@@ -23,15 +23,13 @@
 #include "power.h"
 #include "cpu.h"
 
-#define CHARGE_STAT_GPIO (32*1+6) /* STAT port */
+#define CHARGE_STAT_GPIO (32*1+6)  /* STAT port */
+#define PIN_USB_DET      (32*4+19) /* USB connected */
 
 /* Detect which power sources are present. */
 unsigned int power_input_status(void)
 {
-    if(!__gpio_get_pin(CHARGE_STAT_GPIO))
-        return POWER_INPUT_USB_CHARGER;
-
-    return POWER_INPUT_NONE;
+    return __gpio_get_pin(PIN_USB_DET) ? POWER_INPUT_MAIN_CHARGER : POWER_INPUT_NONE;
 }
 
 void power_init(void)
@@ -42,5 +40,5 @@ void power_init(void)
 
 bool charging_state(void)
 {
-    return (power_input_status() == POWER_INPUT_USB_CHARGER);
+    return power_input_status() && !__gpio_get_pin(CHARGE_STAT_GPIO);
 }

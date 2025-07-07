@@ -177,27 +177,10 @@ MENUITEM_SETTING(pause_rewind, &global_settings.pause_rewind, NULL);
 MENUITEM_SETTING(play_frequency, &global_settings.play_frequency, NULL);
 #endif
 #ifdef HAVE_ALBUMART
-static int albumart_callback(int action,
-                             const struct menu_item_ex *this_item,
-                             struct gui_synclist *this_list)
-{
-    (void)this_item;
-    (void)this_list;
-    static int initial_aa_setting;
-    switch (action)
-    {
-        case ACTION_ENTER_MENUITEM:
-            initial_aa_setting = global_settings.album_art;
-            break;
-        case ACTION_EXIT_MENUITEM: /* on exit */
-            if (initial_aa_setting != global_settings.album_art)
-                set_albumart_mode(global_settings.album_art);
-    }
-    return action;
-}
-MENUITEM_SETTING(album_art, &global_settings.album_art,
-                 albumart_callback);
+MENUITEM_SETTING(album_art, &global_settings.album_art, NULL);
 #endif
+
+MENUITEM_SETTING(playback_log, &global_settings.playback_log, NULL);
 
 MAKE_MENU(playback_settings,ID2P(LANG_PLAYBACK),0,
           Icon_Playback_menu,
@@ -232,6 +215,7 @@ MAKE_MENU(playback_settings,ID2P(LANG_PLAYBACK),0,
 #ifdef HAVE_ALBUMART
           ,&album_art
 #endif
+        ,&playback_log
          );
 
 /*    PLAYBACK MENU                */

@@ -24,7 +24,7 @@
  * support the tag cache interface.
  */
 
-/*#define LOGF_ENABLE*/
+//#define LOGF_ENABLE
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,6 +58,8 @@
 #include "panic.h"
 #include "onplay.h"
 #include "plugin.h"
+#include "language.h"
+#include "playlist_catalog.h"
 
 #define str_or_empty(x) (x ? x : "(NULL)")
 
@@ -112,6 +114,7 @@ enum variables {
     var_include,
     var_rootmenu,
     var_format,
+    menu_byfirstletter,
     menu_next,
     menu_load,
     menu_reload,
@@ -173,11 +176,13 @@ struct display_format {
 static struct display_format *formats[TAGMENU_MAX_FMTS];
 static int format_count;
 
+#define MENUENTRY_MAX_NAME 64
 struct menu_entry {
-    char name[64];
+    char _name[MENUENTRY_MAX_NAME];
+    const unsigned char *name;
     int type;
     struct search_instruction {
-        char name[64];
+        char name[MENUENTRY_MAX_NAME];
         int tagorder[MAX_TAGS];
         int tagorder_count;
         struct tagcache_search_clause *clause[MAX_TAGS][TAGCACHE_MAX_CLAUSES];
@@ -189,17 +194,11 @@ struct menu_entry {
 };
 
 struct menu_root {
-    char title[64];
+    char _title[MENUENTRY_MAX_NAME];
+    const unsigned char *title;
     char id[MAX_MENU_ID_SIZE];
     int itemcount;
     struct menu_entry *items[TAGMENU_MAX_ITEMS];
-};
-
-struct match
-{
-    const char* str;
-    uint16_t len;
-    uint16_t symbol;
 };
 
 /* Statusbar text of the current view. */
@@ -233,7 +232,11 @@ static int move_callback(int handle, void* current, void* new)
     ptrdiff_t diff = new - current;
 
     if (menu)
+    {
+        if ((char *) menu->title == (char *) menu->_title)
+            UPDATE(menu->title, diff);
         UPDATE(menu, diff);
+    }
 
     if (csi)
         UPDATE(csi, diff);
@@ -256,8 +259,12 @@ static int move_callback(int handle, void* current, void* new)
                     UPDATE(mentry->si.clause[k][l], diff);
                 }
             }
+            if ((char *) menuroot->items[j]->name == (char *) menuroot->items[j]->_name)
+                UPDATE(menuroot->items[j]->name, diff);
             UPDATE(menuroot->items[j], diff);
         }
+        if ((char *) menus[i]->title == (char *) menus[i]->_title)
+            UPDATE(menus[i]->title, diff);
         UPDATE(menus[i], diff);
     }
 
@@ -352,66 +359,67 @@ static int get_token_str(char *buf, int size)
 
 static int get_tag(int *tag)
 {
-    #define TAG_MATCH(str, tag) {str, sizeof(str) - 1, tag}
-    static const struct match get_tag_match[] =
+    /* case insensitive matching ahead - these should all be lower case */
+#define TAG_TABLE \
+        TAG_MATCH("lm", tag_virt_length_min) \
+        TAG_MATCH("ls", tag_virt_length_sec) \
+        TAG_MATCH("pm", tag_virt_playtime_min) \
+        TAG_MATCH("ps", tag_virt_playtime_sec) \
+        TAG_MATCH("->", menu_next) \
+        TAG_MATCH("~>", menu_shuffle_songs) \
+        TAG_MATCH("==>", menu_load) \
+        TAG_MATCH("year", tag_year) \
+        TAG_MATCH("album", tag_album) \
+        TAG_MATCH("genre", tag_genre) \
+        TAG_MATCH("title", tag_title) \
+        TAG_MATCH("%sort", var_sorttype) \
+        TAG_MATCH("artist", tag_artist) \
+        TAG_MATCH("length", tag_length) \
+        TAG_MATCH("rating", tag_rating) \
+        TAG_MATCH("%limit", var_limit) \
+        TAG_MATCH("%strip", var_strip) \
+        TAG_MATCH("bitrate", tag_bitrate) \
+        TAG_MATCH("comment", tag_comment) \
+        TAG_MATCH("discnum", tag_discnumber) \
+        TAG_MATCH("%format", var_format) \
+        TAG_MATCH("%reload", menu_reload) \
+        TAG_MATCH("filename", tag_filename) \
+        TAG_MATCH("basename", tag_virt_basename) \
+        TAG_MATCH("tracknum", tag_tracknumber) \
+        TAG_MATCH("composer", tag_composer) \
+        TAG_MATCH("ensemble", tag_albumartist) \
+        TAG_MATCH("grouping", tag_grouping) \
+        TAG_MATCH("entryage", tag_virt_entryage) \
+        TAG_MATCH("commitid", tag_commitid) \
+        TAG_MATCH("%include", var_include) \
+        TAG_MATCH("playcount", tag_playcount) \
+        TAG_MATCH("autoscore", tag_virt_autoscore) \
+        TAG_MATCH("lastplayed", tag_lastplayed) \
+        TAG_MATCH("lastoffset", tag_lastoffset) \
+        TAG_MATCH("%root_menu", var_rootmenu) \
+        TAG_MATCH("albumartist", tag_albumartist) \
+        TAG_MATCH("lastelapsed", tag_lastelapsed) \
+        TAG_MATCH("%menu_start", var_menu_start) \
+        TAG_MATCH("%byfirstletter", menu_byfirstletter) \
+        TAG_MATCH("canonicalartist", tag_virt_canonicalartist) \
+    /* END OF TAG_TABLE MACRO */
+
+    /* build two separate arrays tag strings and symbol map*/
+    #define TAG_MATCH(str, tag) str,
+    static const char * const get_tag_match[] =
     {
-        TAG_MATCH("Lm", tag_virt_length_min),
-        TAG_MATCH("Ls", tag_virt_length_sec),
-        TAG_MATCH("Pm", tag_virt_playtime_min),
-        TAG_MATCH("Ps", tag_virt_playtime_sec),
-        TAG_MATCH("->", menu_next),
-        TAG_MATCH("~>", menu_shuffle_songs),
-
-        TAG_MATCH("==>", menu_load),
-
-        TAG_MATCH("year", tag_year),
-
-        TAG_MATCH("album", tag_album),
-        TAG_MATCH("genre", tag_genre),
-        TAG_MATCH("title", tag_title),
-        TAG_MATCH("%sort", var_sorttype),
-
-        TAG_MATCH("artist", tag_artist),
-        TAG_MATCH("length", tag_length),
-        TAG_MATCH("rating", tag_rating),
-        TAG_MATCH("%limit", var_limit),
-        TAG_MATCH("%strip", var_strip),
-
-        TAG_MATCH("bitrate", tag_bitrate),
-        TAG_MATCH("comment", tag_comment),
-        TAG_MATCH("discnum", tag_discnumber),
-        TAG_MATCH("%format", var_format),
-        TAG_MATCH("%reload", menu_reload),
-
-        TAG_MATCH("filename", tag_filename),
-        TAG_MATCH("basename", tag_virt_basename),
-        TAG_MATCH("tracknum", tag_tracknumber),
-        TAG_MATCH("composer", tag_composer),
-        TAG_MATCH("ensemble", tag_albumartist),
-        TAG_MATCH("grouping", tag_grouping),
-        TAG_MATCH("entryage", tag_virt_entryage),
-        TAG_MATCH("commitid", tag_commitid),
-        TAG_MATCH("%include", var_include),
-
-        TAG_MATCH("playcount", tag_playcount),
-        TAG_MATCH("autoscore", tag_virt_autoscore),
-
-        TAG_MATCH("lastplayed", tag_lastplayed),
-        TAG_MATCH("lastoffset", tag_lastoffset),
-        TAG_MATCH("%root_menu", var_rootmenu),
-
-        TAG_MATCH("albumartist", tag_albumartist),
-        TAG_MATCH("lastelapsed", tag_lastelapsed),
-        TAG_MATCH("%menu_start", var_menu_start),
-
-        TAG_MATCH("canonicalartist", tag_virt_canonicalartist),
-        TAG_MATCH("", 0) /* sentinel */
+        TAG_TABLE
     };
     #undef TAG_MATCH
-    const size_t max_cmd_sz = 32; /* needs to be >= to len of longest tagstr */
+    #define TAG_MATCH(str, tag) tag,
+    static const uint8_t get_tag_symbol[]=
+    {
+        TAG_TABLE
+    };
+    #undef TAG_MATCH
+
     const char *tagstr;
-    unsigned int tagstr_len;
-    const struct match *match;
+    ptrdiff_t tagstr_len;
 
     /* Find the start. */
     while (*strp == ' ' || *strp == '>')
@@ -421,25 +429,29 @@ static int get_tag(int *tag)
         return 0;
 
     tagstr = strp;
-    for (tagstr_len = 0; tagstr_len < max_cmd_sz; tagstr_len++)
+    while(*strp != '\0' && *strp != ' ') /* walk to the end of the tag */
     {
-        if (*strp == '\0' || *strp == ' ')
-            break ;
         strp++;
     }
+    tagstr_len = strp - tagstr;
 
-    for (match = get_tag_match; match->len != 0; match++)
+    char first = tolower(*tagstr++); /* get the first letter elide cmp fn call */
+
+    for (size_t i = 0; i < ARRAYLEN(get_tag_match); i++)
     {
-        if (tagstr_len != match->len)
-            continue;
-        else if (strncasecmp(tagstr, match->str, match->len) == 0)
+        const char *match = get_tag_match[i];
+
+        if (first == match[0] && strncasecmp(tagstr, match + 1, tagstr_len - 1) == 0)
         {
-            *tag = match->symbol;
-            return 1;
+            /* check for full match */
+            if (match[tagstr_len] == '\0')
+            {
+                *tag = get_tag_symbol[i];
+                return 1;
+            }
         }
     }
-
-    logf("NO MATCH: %.*s\n", tagstr_len, tagstr);
+    logf("NO MATCH: %.*s\n", (int)tagstr_len, tagstr);
 
     return -1;
 }
@@ -447,10 +459,10 @@ static int get_tag(int *tag)
 static int get_clause(int *condition)
 {
     /* one or two operator conditionals */
-    #define OPS2VAL(op1, op2) ((int)op1 << 8 | (int)op2)
+    #define OPS2VAL(op1, op2) ((uint16_t)op1 << 8 | (uint16_t)op2)
     #define CLAUSE(op1, op2, symbol) {OPS2VAL(op1, op2), symbol }
 
-    struct clause_symbol {int value;int symbol;};
+    struct clause_symbol {uint16_t value;uint16_t symbol;};
     const struct clause_symbol *match;
     static const struct clause_symbol get_clause_match[] =
     {
@@ -470,6 +482,9 @@ static int get_clause(int *condition)
         CLAUSE('@', '^', clause_begins_oneof),
         CLAUSE('@', '$', clause_ends_oneof),
         CLAUSE('@', ' ', clause_oneof),
+        CLAUSE('*', '^', clause_not_begins_oneof),
+        CLAUSE('*', '$', clause_not_ends_oneof),
+        CLAUSE('!', '@', clause_not_oneof),
         CLAUSE(0, 0, 0) /* sentinel */
     };
 
@@ -485,7 +500,7 @@ static int get_clause(int *condition)
     if (op2 == '"') /*allow " to end a single op conditional */
         op2 = ' ';
 
-    int value = OPS2VAL(op1, op2);
+    uint16_t value = OPS2VAL(op1, op2);
 
     for (match = get_clause_match; match->value != 0; match++)
     {
@@ -798,11 +813,25 @@ static bool parse_search(struct menu_entry *entry, const char *str)
     strp = str;
 
     /* Parse entry name */
-    if (get_token_str(entry->name, sizeof entry->name) < 0)
+    if (get_token_str(entry->_name, sizeof entry->_name) < 0)
     {
         logf("No name found.");
         return false;
     }
+
+    /* Attempt to entry name to lang_id for voicing/translation
+    (excepted for single character entries like those in the 'First Letter' menus)
+    */
+    if (entry->_name[0] != '\0' && entry->_name[1] != '\0')
+    {
+        int lang_id = lang_english_to_id(entry->_name);
+        if (lang_id >= 0)
+            entry->name = ID2P(lang_id);
+        else
+            entry->name = entry->_name;
+    }
+    else
+        entry->name = entry->_name;
 
     /* Parse entry type */
     if (get_tag(&entry->type) <= 0)
@@ -1036,7 +1065,7 @@ int tagtree_export(void)
 {
     struct tagcache_search tcs;
 
-    splash(0, str(LANG_CREATING));
+    splash(0, ID2P(LANG_CREATING));
     if (!tagcache_create_changelog(&tcs))
     {
         splash(HZ*2, ID2P(LANG_FAILED));
@@ -1056,8 +1085,84 @@ int tagtree_import(void)
     return 0;
 }
 
-static bool parse_menu(const char *filename);
+static bool alloc_menu_parse_buf(char *buf, int type)
+{
+    /* allocate a new menu item (if needed) initialize it with data parsed
+       from buf Note: allows setting menu type, type ignored when < 0
+    */
+    /* Allocate */
+    if (menu->items[menu->itemcount] == NULL)
+        menu->items[menu->itemcount] = tagtree_alloc0(sizeof(struct menu_entry));
+    if (!menu->items[menu->itemcount])
+    {
+        logf("tagtree failed to allocate %s", "menu items");
+        return false;
+    }
 
+    /* Initialize */
+    core_pin(tagtree_handle);
+    if (parse_search(menu->items[menu->itemcount], buf))
+    {
+        if (type >= 0)
+            menu->items[menu->itemcount]->type = type;
+        menu->itemcount++;
+    }
+    core_unpin(tagtree_handle);
+    return true;
+}
+
+static void build_firstletter_menu(char *buf, size_t bufsz)
+{
+#if 0 /* GCC complains about this I can't find a definitive answer */
+    const char *subitem = buf;
+    size_t l = strlen(buf) + 1;
+    buf+=l;
+    bufsz-=l;
+#else
+    char subitem[32]; /* canonicalartist longest subitem we expect add a bit extra..*/
+    strmemccpy(subitem, buf, sizeof(subitem));
+#endif
+
+    const char * const fmt ="\"%s\"-> %s ? %s %c\"%c\"-> %s =\"fmt_title\"";
+    const char * const showsub = /* album subitem for canonicalartist */
+        ((strcasestr(subitem, "artist") == NULL) ? "title" : "album -> title");
+
+    /* Using >= "0" & <= "9" does not work as intended in all cases
+    we need to use the previous & the next character in the ASCII table
+    which are "/" and ":" to get the intended effect */
+    const char * fmt_numeric ="\"%s\"-> %s ? %s > \"/\" & %s < \":\" -> %s =\"fmt_title\"";
+    snprintf(buf, bufsz, fmt_numeric,
+            str(LANG_DISPLAY_NUMERIC), subitem, subitem, subitem, showsub);
+
+    if (!alloc_menu_parse_buf(buf, menu_byfirstletter))
+    {
+        return;
+    }
+
+    for (int i = 0; i < 26; i++)
+    {
+        snprintf(buf, bufsz, fmt, "#", subitem, subitem,'^', 'A' + i, showsub);
+        buf[1] = 'A' + i; /* overwrite the placeholder # with the current letter */
+        /* ex: "A" -> title ? title ^ "A" -> title = "fmt_title" */
+        if (!alloc_menu_parse_buf(buf, menu_byfirstletter))
+        {
+            return;
+        }
+    }
+
+    /* use lower character there because strncasecmp works will convert them anyway */
+    const char * fmt_special ="\"%s\"-> %s ? %s *^ "\
+    "\"a|b|c|d|e|f|g|h|i|j|k|l|m|n|o|p|q|r|s|t|u|v|w|x|y|z|0|1|2|3|4|5|6|7|8|9\" -> %s =\"fmt_title\"";
+    snprintf(buf, bufsz, fmt_special,
+        str(LANG_DISPLAY_SPECIAL_CHARACTER), subitem, subitem, showsub);
+
+    if (!alloc_menu_parse_buf(buf, menu_byfirstletter))
+    {
+        return;
+    }
+}
+
+static bool parse_menu(const char *filename);
 static int parse_line(int n, char *buf, void *parameters)
 {
     char data[256];
@@ -1127,7 +1232,7 @@ static int parse_line(int n, char *buf, void *parameters)
                     logf("Load menu fail: %s", data);
                 }
                 break;
-
+            case menu_byfirstletter: /* Fallthrough */
             case var_menu_start:
                 if (menu_count >= TAGMENU_MAX_MENUS)
                 {
@@ -1163,12 +1268,33 @@ static int parse_line(int n, char *buf, void *parameters)
                     strmemccpy(menu->id, data, MAX_MENU_ID_SIZE);
                 }
 
-                if (get_token_str(menu->title, sizeof(menu->title)) < 0)
+                if (get_token_str(menu->_title, sizeof(menu->_title)) < 0)
                 {
                     logf("%%menu_start title empty");
                     return 0;
                 }
-                logf("menu: %s", menu->title);
+
+                /* Attempt to match title to lang_id for voicing/translation */
+                int lang_id = lang_english_to_id(menu->_title);
+                if (lang_id >= 0)
+                    menu->title = ID2P(lang_id);
+                else
+                    menu->title = menu->_title;
+
+                logf("menu: %s id: %ld", P2STR(menu->title), P2ID(menu->title));
+
+                if (variable == menu_byfirstletter)
+                {
+                    if (get_token_str(data, sizeof(data)) < 0)
+                    {
+                        logf("%%firstletter_menu has no subitem"); /*artist,album*/
+                        return 0;
+                    }
+                    logf("A-Z Menu subitem: %s", data);
+                    read_menu = false;
+                    build_firstletter_menu(data, sizeof(data));
+                    break;
+                }
                 read_menu = true;
                 break;
 
@@ -1202,18 +1328,10 @@ static int parse_line(int n, char *buf, void *parameters)
         return 0;
     }
 
-    /* Allocate */
-    if (menu->items[menu->itemcount] == NULL)
-        menu->items[menu->itemcount] = tagtree_alloc0(sizeof(struct menu_entry));
-    if (!menu->items[menu->itemcount])
+    if (!alloc_menu_parse_buf(buf, -1))
     {
-        logf("tagtree failed to allocate %s", "menu items");
         return -2;
     }
-    core_pin(tagtree_handle);
-    if (parse_search(menu->items[menu->itemcount], buf))
-        menu->itemcount++;
-    core_unpin(tagtree_handle);
 
     return 0;
 }
@@ -1290,7 +1408,7 @@ static void tagtree_unload(struct tree_context *c)
         tree_unlock_cache(c);
 }
 
-static bool initialize_tagtree(void) /* also used when user selects 'Reload' in 'custom view'*/
+static bool initialize_tagtree(void) /* also used when user selects 'Reload' in 'custom menu'*/
 {
     max_history_level = 0;
     format_count = 0;
@@ -1449,6 +1567,7 @@ static void tcs_get_basename(struct tagcache_search *tcs, bool is_basename)
 
 static int retrieve_entries(struct tree_context *c, int offset, bool init)
 {
+    logf( "%s", __func__);
     char tcs_buf[TAGCACHE_BUFSZ];
     const long tcs_bufsz = sizeof(tcs_buf);
     struct tagcache_search tcs;
@@ -1456,7 +1575,7 @@ static int retrieve_entries(struct tree_context *c, int offset, bool init)
     int i;
     int namebufused = 0;
     int total_count = 0;
-    int special_entry_count = 0;
+    c->special_entry_count = 0;
     int level = c->currextra;
     int tag;
     bool sort = false;
@@ -1569,21 +1688,21 @@ static int retrieve_entries(struct tree_context *c, int offset, bool init)
         if (offset == 0)
         {
             dptr->newtable = TABLE_ALLSUBENTRIES;
-            dptr->name = str(LANG_TAGNAVI_ALL_TRACKS);
+            dptr->name = ID2P(LANG_TAGNAVI_ALL_TRACKS);
             dptr->customaction = ONPLAY_NO_CUSTOMACTION;
             dptr++;
             current_entry_count++;
-            special_entry_count++;
+            c->special_entry_count++;
         }
         if (offset <= 1)
         {
             dptr->newtable = TABLE_NAVIBROWSE;
-            dptr->name = str(LANG_TAGNAVI_RANDOM);
+            dptr->name = ID2P(LANG_TAGNAVI_RANDOM);
             dptr->extraseek = -1;
             dptr->customaction = ONPLAY_NO_CUSTOMACTION;
             dptr++;
             current_entry_count++;
-            special_entry_count++;
+            c->special_entry_count++;
         }
 
         total_count += 2;
@@ -1721,8 +1840,8 @@ entry_skip_formatter:
             qsort_fn = sort_inverse ? strncasecmp_inv : strncasecmp;
 
         struct tagentry *entries = get_entries(c);
-        qsort(&entries[special_entry_count],
-              current_entry_count - special_entry_count,
+        qsort(&entries[c->special_entry_count],
+              current_entry_count - c->special_entry_count,
               sizeof(struct tagentry),
               compare);
     }
@@ -1753,6 +1872,7 @@ entry_skip_formatter:
             talk_value(total_count, UNIT_INT, true);
         }
 
+        /* (voiced above) */
         splashf(HZ*4, str(LANG_SHOWDIR_BUFFER_FULL), total_count);
         logf("Too small dir buffer");
         return 0;
@@ -1764,7 +1884,7 @@ entry_skip_formatter:
     if (strip)
     {
         dptr = get_entries(c);
-        for (i = special_entry_count; i < current_entry_count; i++, dptr++)
+        for (i = c->special_entry_count; i < current_entry_count; i++, dptr++)
         {
             int len = strlen(dptr->name);
 
@@ -1798,7 +1918,12 @@ static int load_root(struct tree_context *c)
 
     for (i = 0; i < menu->itemcount; i++)
     {
-        dptr->name = menu->items[i]->name;
+
+        dptr->name = (char*)menu->items[i]->name;
+
+        logf( "%s loading menu %d name: %s, lang_id %ld", __func__, i,
+             P2STR((unsigned char*)dptr->name),P2ID((unsigned char*)dptr->name));
+
         switch (menu->items[i]->type)
         {
             case menu_next:
@@ -1817,6 +1942,12 @@ static int load_root(struct tree_context *c)
                 dptr->newtable = TABLE_NAVIBROWSE;
                 dptr->extraseek = i;
                 dptr->customaction = ONPLAY_CUSTOMACTION_SHUFFLE_SONGS;
+                break;
+
+            case menu_byfirstletter:
+                dptr->newtable = TABLE_NAVIBROWSE;
+                dptr->extraseek = i;
+                dptr->customaction = ONPLAY_CUSTOMACTION_FIRSTLETTER;
                 break;
         }
 
@@ -1882,10 +2013,10 @@ int tagtree_load(struct tree_context* c)
     if (count < 0)
     {
         if (count != RELOAD_TAGTREE)
-            splash(HZ, str(LANG_TAGCACHE_BUSY));
+            splash(HZ, ID2P(LANG_TAGCACHE_BUSY));
         else /* unload and re-init tagtree */
         {
-            splash(HZ, str(LANG_WAIT));
+            splash(HZ, ID2P(LANG_WAIT));
             tagtree_unload(c);
             if (!initialize_tagtree())
                 return 0;
@@ -1990,8 +2121,12 @@ int tagtree_enter(struct tree_context* c, bool is_visible)
                 csi = &menu->items[seek]->si;
                 c->currextra = 0;
 
-                strmemccpy(current_title[c->currextra], dptr->name,
+                unsigned char *name = dptr->name;
+
+                strmemccpy(current_title[c->currextra], P2STR(name),
                            sizeof(current_title[0]));
+
+                logf("%s (ROOT) current title %s", __func__, P2STR(name));
 
                 /* Read input as necessary. */
                 for (i = 0; i < csi->tagorder_count; i++)
@@ -2085,9 +2220,11 @@ int tagtree_enter(struct tree_context* c, bool is_visible)
             else
                 c->dirlevel--;
 
+            unsigned char *name = dptr->name;
+            name = P2STR(name);
+            logf("%s (NAVI/ALLSUB) current title %s", __func__, name);
             /* Update the statusbar title */
-            strmemccpy(current_title[c->currextra], dptr->name,
-                       sizeof(current_title[0]));
+            strmemccpy(current_title[c->currextra], name, sizeof(current_title[0]));
             break;
 
         default:
@@ -2158,6 +2295,8 @@ int tagtree_get_filename(struct tree_context* c, char *buf, int buflen)
 
 int tagtree_get_custom_action(struct tree_context* c)
 {
+    if (c->dirlength == 0)
+        return 0;
     return tagtree_get_entry(c, c->selected_item)->customaction;
 }
 
@@ -2205,34 +2344,35 @@ static bool insert_all_playlist(struct tree_context *c,
     bool fill_randomly = false;
     bool *rand_bool_array = NULL;
     char buf[MAX_PATH];
+    struct playlist_insert_context context;
 
     cpu_boost(true);
+
     if (!tagcache_search(&tcs, tag_filename))
     {
         splash(HZ, ID2P(LANG_TAGCACHE_BUSY));
         cpu_boost(false);
         return false;
-    }
+    } /* NOTE: you need to close this search before returning */
 
-    if (playlist == NULL && position == PLAYLIST_REPLACE)
+    if (playlist == NULL)
     {
-        if (playlist_remove_all_tracks(NULL) == 0)
-            position = PLAYLIST_INSERT_LAST;
-        else
+        if (playlist_insert_context_create(NULL, &context, position, queue, false) < 0)
         {
+            tagcache_search_finish(&tcs);
             cpu_boost(false);
             return false;
         }
     }
-    else if (playlist != NULL)
+    else
     {
         if (new_playlist)
             fd = open_utf8(playlist, O_CREAT|O_WRONLY|O_TRUNC);
         else
             fd = open(playlist, O_CREAT|O_WRONLY|O_APPEND, 0666);
-
         if(fd < 0)
         {
+            tagcache_search_finish(&tcs);
             cpu_boost(false);
             return false;
         }
@@ -2249,12 +2389,13 @@ static bool insert_all_playlist(struct tree_context *c,
         if (slots_remaining <= 0)
         {
             logf("Playlist has no space remaining");
+            tagcache_search_finish(&tcs);
             cpu_boost(false);
             return false;
         }
 
         fill_randomly = n > slots_remaining;
-    
+
         if (fill_randomly)
         {
             srand(current_tick);
@@ -2263,9 +2404,8 @@ static bool insert_all_playlist(struct tree_context *c,
             rand_bool_array = fill_random_playlist_indexes(buffer, bufsize,
                                                            n, slots_remaining);
 
-            talk_id(LANG_RANDOM_SHUFFLE_RANDOM_SELECTIVE_SONGS_SUMMARY, true);
-            splashf(HZ * 2, str(LANG_RANDOM_SHUFFLE_RANDOM_SELECTIVE_SONGS_SUMMARY),
-                    slots_remaining);
+            splashf(HZ * 2, ID2P(LANG_RANDOM_SHUFFLE_RANDOM_SELECTIVE_SONGS_SUMMARY),
+                    slots_remaining); /* voiced above */
         }
     }
 
@@ -2274,6 +2414,7 @@ static bool insert_all_playlist(struct tree_context *c,
     {
         if (TIME_AFTER(current_tick, last_tick + HZ/4))
         {
+            /* (voiced) */
             splash_progress(i, n, "%s (%s)", str(LANG_WAIT), str(LANG_OFF_ABORT));
             if (action_userabort(TIMEOUT_NOBLOCK))
             {
@@ -2332,7 +2473,7 @@ static bool insert_all_playlist(struct tree_context *c,
                 }
             }
 
-            if (playlist_insert_track(NULL, buf, position, queue, false) < 0) {
+            if (playlist_insert_context_add(&context, buf) < 0) {
                 logf("playlist_insert_track failed");
                 exit_loop_now = true;
                 break;
@@ -2344,16 +2485,16 @@ static bool insert_all_playlist(struct tree_context *c,
             break;
         }
         yield();
-        if (playlist == NULL && position == PLAYLIST_INSERT_FIRST)
-            position = PLAYLIST_INSERT;
 
         if (exit_loop_now)
             break;
     }
+
     if (playlist == NULL)
-        playlist_sync(NULL);
+        playlist_insert_context_release(&context);
     else
         close(fd);
+
     tagcache_search_finish(&tcs);
     cpu_boost(false);
 
@@ -2405,7 +2546,10 @@ static bool tagtree_insert_selection(int position, bool queue,
         if (tagtree_get_filename(tc, buf, sizeof buf) < 0)
             return false;
 
-        playlist_insert_track(NULL, buf, position, queue, true);
+        if (!playlist)
+            playlist_insert_track(NULL, buf, position, queue, true);
+        else
+            catalog_insert_into(playlist, new_playlist, buf, FILE_ATTR_AUDIO);
 
         return true;
     }
@@ -2449,6 +2593,7 @@ bool tagtree_subentries_do_action(bool (*action_cb)(const char *file_name))
         n = tc->filesindir;
         for (i = 0; i < n; i++)
         {
+            /* (voiced) */
             splash_progress(i, n, "%s (%s)", str(LANG_WAIT), str(LANG_OFF_ABORT));
             if (TIME_AFTER(current_tick, last_tick + HZ/4))
             {
@@ -2574,6 +2719,18 @@ char* tagtree_get_entry_name(struct tree_context *c, int id,
     struct tagentry *entry = tagtree_get_entry(c, id);
     if (!entry)
         return NULL;
+
+    unsigned char *name = entry->name;
+
+    int lang_id = P2ID(name);
+    logf("%s: '%s' id: %d\n", __func__,
+         P2STR(name), lang_id);
+    if (lang_id >= 0)
+    {
+        strmemccpy(buf,P2STR(name), bufsize);
+        return entry->name;
+    }
+
     strmemccpy(buf, entry->name, bufsize);
     return buf;
 }
@@ -2584,10 +2741,13 @@ char *tagtree_get_title(struct tree_context* c)
     switch (c->currtable)
     {
         case TABLE_ROOT:
-            return menu->title;
+            logf("%s (ROOT) %s", __func__,  P2STR(menu->title));
+            return P2STR(menu->title);
 
         case TABLE_NAVIBROWSE:
         case TABLE_ALLSUBENTRIES:
+            logf("%s (NAVI/ALLSUB) idx: %d %s", __func__,
+                 c->currextra, current_title[c->currextra]);
             return current_title[c->currextra];
     }
 

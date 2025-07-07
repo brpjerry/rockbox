@@ -78,11 +78,8 @@ static void skip_enumlist(const char** document)
 
 void skip_tag(const char** document)
 {
-    char tag_name[MAX_TAG_LENGTH];
-    int i;
     bool qmark;
     const struct tag_info *tag;
-    const char *cursor;
 
     if(**document == TAGSYM)
         (*document)++;
@@ -96,25 +93,11 @@ void skip_tag(const char** document)
     }
     else
     {
-        cursor = *document;
-
         /* Checking the tag name */
-        for (i=0; cursor[i] && i<MAX_TAG_LENGTH; i++)
-            tag_name[i] = cursor[i];
-
-        /* First we check the two characters after the '%', then a single char */
-        tag = NULL;
-        i = MAX_TAG_LENGTH;
-        while (!tag && i > 1)
-        {
-            tag_name[i-1] = '\0';
-            tag = find_tag(tag_name);
-            i--;
-        }
-
+        tag = find_tag(*document);
         if (tag)
         {
-            *document += strlen(tag->name);
+            *document += tag->param_pos - 1; /*strlen(tag->name)*/
         }
     }
     if (**document == ARGLISTOPENSYM)
@@ -183,53 +166,42 @@ char* scan_string(const char** document)
 int scan_int(const char** document)
 {
 
-    const char *cursor = *document, *end;
-    int length = 0;
-    char buffer[16];
-    int retval;
-    int i;
+    const char *cursor = *document;
+    int retval = 0;
+    int sign = 1;
 
-    while(isdigit(*cursor) || *cursor == COMMENTSYM || *cursor == '-')
+    while(true)
     {
         if(*cursor == COMMENTSYM)
         {
             skip_comment(&cursor);
+            if (retval > 0) /* || sign < 0 already read a number */
+            {
+                break;
+            }
             continue;
         }
-
-        length++;
-        cursor++;
-    }
-    if (length > 15)
-        length = 15;
-    end = cursor;
-    /* Copying to the buffer while avoiding comments */
-    cursor = *document;
-    buffer[length] = '\0';
-    for(i = 0; i < length; i++)
-    {
-        if(*cursor == COMMENTSYM)
+        else if (*cursor == '-')
         {
-            skip_comment(&cursor);
-            i--;
-            continue;
+            if (retval != 0)  /* only allow negative prior to numbers */
+                break;
+            sign = -1;
         }
-
-        buffer[i] = *cursor;
+        else if (isdigit(*cursor)) /* is digit*/
+        {
+            retval = (retval * 10) + (*cursor - '0');
+        }
+        else
+            break;
         cursor++;
-
     }
-    retval = atoi(buffer);
+    *document = cursor;
 
-    *document = end;
-    return retval;
+    return sign * retval;
 }
 
 int check_viewport(const char* document)
 {
-    if(strlen(document) < 3)
-        return 0;
-
     if(document[0] != TAGSYM)
         return 0;
 
@@ -239,6 +211,9 @@ int check_viewport(const char* document)
     if(document[2] != ARGLISTOPENSYM
        && document[2] != 'l'
        && document[2] != 'i')
+        return 0;
+
+    if (document[3] == '\0')
         return 0;
 
     return 1;

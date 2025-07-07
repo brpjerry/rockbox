@@ -867,7 +867,7 @@ static int load_image(int fd, const char *path,
 #ifdef HAVE_JPEG
     if (aa != NULL) {
         lseek(fd, aa->pos, SEEK_SET);
-        rc = clip_jpeg_fd(fd, aa->size, bmp, (int)max_size, format, NULL);
+        rc = clip_jpeg_fd(fd, aa->type, aa->size, bmp, (int)max_size, format, NULL);
     }
     else if (strcmp(path + strlen(path) - 4, ".bmp"))
         rc = read_jpeg_fd(fd, bmp, (int)max_size, format, NULL);
@@ -1405,6 +1405,16 @@ ssize_t bufread(int handle_id, size_t size, void *dest)
         memcpy(dest, ringbuf_ptr(h->ridx), size);
     }
 
+    return size;
+}
+
+off_t bufstripsize(int handle_id, off_t size)
+{
+    struct memory_handle *h = find_handle(handle_id);
+    if (!h || h->filesize < size)
+        return ERR_INVALID_VALUE;
+
+    h->filesize = size;
     return size;
 }
 

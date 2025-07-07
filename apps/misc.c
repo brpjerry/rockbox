@@ -178,7 +178,7 @@ char *output_dyn_value(char *buf,
     }
     else
     {
-        talk_fractional(tbuf, value, P2ID(units[unit_no]));
+        talk_fractional(tbuf, value2, P2ID(units[unit_no]));
     }
     return buf;
 }
@@ -187,7 +187,8 @@ char *output_dyn_value(char *buf,
  * returns true if the playlist should be replaced */
 bool warn_on_pl_erase(void)
 {
-    if (global_settings.warnon_erase_dynplaylist &&
+    if (global_status.resume_index != -1 &&
+        global_settings.warnon_erase_dynplaylist &&
         !global_settings.party_mode &&
         playlist_modified(NULL))
     {
@@ -195,7 +196,13 @@ bool warn_on_pl_erase(void)
             {ID2P(LANG_WARN_ERASEDYNPLAYLIST_PROMPT)};
         static const struct text_message message={lines, 1};
 
-        return (gui_syncyesno_run(&message, NULL, NULL) == YESNO_YES);
+        if (gui_syncyesno_run(&message, NULL, NULL) == YESNO_YES)
+            return true;
+        else
+        {
+            splash(HZ, ID2P(LANG_CANCEL));
+            return false;
+        }
     }
     else
         return true;
@@ -203,12 +210,13 @@ bool warn_on_pl_erase(void)
 
 bool show_search_progress(bool init, int display_count, int current, int total)
 {
-    static int last_tick = 0;
+    static long last_tick, talked_tick;
 
     /* Don't show splashes for 1/2 second after starting search */
     if (init)
     {
         last_tick = current_tick + HZ/2;
+        talked_tick = 0;
         return true;
     }
 
@@ -216,13 +224,22 @@ bool show_search_progress(bool init, int display_count, int current, int total)
     if (TIME_AFTER(current_tick, last_tick + HZ/10))
     {
         if (total != current)
-        {
+            /* (voiced) */
             splash_progress(current, total, str(LANG_PLAYLIST_SEARCH_MSG),
                             display_count, str(LANG_OFF_ABORT));
-        }
         else
+        {
+            if (global_settings.talk_menu &&
+                TIME_AFTER(current_tick, talked_tick + (HZ * 5)))
+            {
+                talked_tick = current_tick;
+                talk_number(display_count, false);
+                talk_id(LANG_PLAYLIST_SEARCH_MSG, true);
+            }
+            /* (voiced above) */
             splashf(0, str(LANG_PLAYLIST_SEARCH_MSG),
                     display_count, str(LANG_OFF_ABORT));
+        }
 
         if (action_userabort(TIMEOUT_NOBLOCK))
             return false;
@@ -344,7 +361,7 @@ static bool clean_shutdown(enum shutdown_type sd_type,
         talk_disable(true);
     }
 
-    status_save();
+    status_save(true);
 
 #if CONFIG_CHARGING && !defined(HAVE_POWEROFF_WHILE_CHARGING)
     if(!charger_inserted())
@@ -565,12 +582,7 @@ static void hp_unplug_change(bool inserted)
                     headphone_caused_pause &&
                     global_settings.unplug_mode > 1 )
             {
-                enum current_activity act = get_current_activity();
-                /* only do a skin refresh if in one of the below screens */
-                bool refresh = (act == ACTIVITY_FM ||
-                                act == ACTIVITY_WPS ||
-                                act == ACTIVITY_RECORDING);
-                unpause_action(refresh);
+                unpause_action(true);
             }
             headphone_caused_pause = false;
         } else {
@@ -750,8 +762,8 @@ long default_event_handler_ex(long event, void (*callback)(void *), void *parame
              * event data is available in the last button data */
             int volume = button_get_data();
             DEBUGF("SYS_VOLUME_CHANGED: %d\n", volume);
-            if (global_settings.volume != volume) {
-                global_settings.volume = volume;
+            if (global_status.volume != volume) {
+                global_status.volume = volume;
                 if (firstvolume) {
                     setvol();
                     firstvolume = false;
@@ -858,16 +870,17 @@ void setvol(void)
 {
     const int min_vol = sound_min(SOUND_VOLUME);
     const int max_vol = sound_max(SOUND_VOLUME);
-    if (global_settings.volume < min_vol)
-        global_settings.volume = min_vol;
-    if (global_settings.volume > max_vol)
-        global_settings.volume = max_vol;
-    if (global_settings.volume > global_settings.volume_limit)
-        global_settings.volume = global_settings.volume_limit;
-
-    sound_set_volume(global_settings.volume);
+    int volume = global_status.volume;
+    if (volume < min_vol)
+        volume = min_vol;
+    if (volume > max_vol)
+        volume = max_vol;
+    if (volume > global_settings.volume_limit)
+        volume = global_settings.volume_limit;
+    global_status.volume = volume;
+    sound_set_volume(volume);
     global_status.last_volume_change = current_tick;
-    settings_save();
+    status_save(false);
 }
 
 #ifdef HAVE_PERCEPTUAL_VOLUME
@@ -919,7 +932,7 @@ void set_normalized_volume(int vol)
     if (vol >= norm_tab_size)
         vol = norm_tab_size - 1;
 
-    global_settings.volume = norm_tab[vol];
+    global_status.volume = norm_tab[vol];
 }
 
 int get_normalized_volume(void)
@@ -930,7 +943,7 @@ int get_normalized_volume(void)
     while (a != b)
     {
         int i = (a + b + 1) / 2;
-        if (global_settings.volume < norm_tab[i])
+        if (global_status.volume < norm_tab[i])
             b = i - 1;
         else
             a = i;
@@ -941,12 +954,12 @@ int get_normalized_volume(void)
 #else
 void set_normalized_volume(int vol)
 {
-    global_settings.volume = vol * sound_steps(SOUND_VOLUME);
+    global_status.volume = vol * sound_steps(SOUND_VOLUME);
 }
 
 int get_normalized_volume(void)
 {
-    return global_settings.volume / sound_steps(SOUND_VOLUME);
+    return global_status.volume / sound_steps(SOUND_VOLUME);
 }
 #endif
 
@@ -970,7 +983,7 @@ void adjust_volume_ex(int steps, enum volume_adjust_mode mode)
 #endif
     case VOLUME_ADJUST_DIRECT:
     default:
-        global_settings.volume += steps * sound_steps(SOUND_VOLUME);
+        global_status.volume += steps * sound_steps(SOUND_VOLUME);
         break;
     }
 
@@ -1166,8 +1179,7 @@ void replaygain_update(void)
     dsp_replaygain_set_settings(&settings);
 }
 
-/* format a sound value like: -1.05 dB */
-int format_sound_value(char *buf, size_t size, int snd, int val)
+void format_sound_value_ex(char *buf, size_t buf_sz, int snd, int val, bool skin_token)
 {
     int numdec = sound_numdecimals(snd);
     const char *unit = sound_unit(snd);
@@ -1182,8 +1194,15 @@ int format_sound_value(char *buf, size_t size, int snd, int val)
     unsigned int av = abs(physval);
     unsigned int i = av / factor;
     unsigned int d = av - i*factor;
-    return snprintf(buf, size, "%c%u%.*s%.*u %s", " -"[physval < 0],
-                    i, numdec, ".", numdec, d, unit);
+
+    snprintf(buf, buf_sz, "%s%u%.*s%.*u%s%s", physval < 0 ? "-" : &" "[skin_token],
+             i, numdec, ".", numdec, d, &" "[skin_token], skin_token ? "" : unit);
+}
+
+/* format a sound value as "-1.05 dB", or " 1.05 dB" */
+void format_sound_value(char *buf, size_t buf_sz, int snd, int val)
+{
+    format_sound_value_ex(buf, buf_sz, snd, val, false);
 }
 
 #endif /* !defined(__PCTOOL__) */
@@ -1265,20 +1284,6 @@ int confirm_delete_yesno(const char *name)
     const struct text_message message = { lines, 2 };
     const struct text_message yes_message = { yes_lines, 2 };
     return gui_syncyesno_run(&message, &yes_message, NULL);
-}
-
-int confirm_overwrite_yesno(void)
-{
-    static const char *lines[] = { ID2P(LANG_REALLY_OVERWRITE) };
-    static const struct text_message message = { lines, 1 };
-    return gui_syncyesno_run(&message, NULL, NULL);
-}
-
-int confirm_remove_queued_yesno(void)
-{
-    static const char *lines[] = { ID2P(LANG_REMOVE_QUEUED_TRACKS) };
-    static const struct text_message message = { lines, 1 };
-    return gui_syncyesno_run(&message, NULL, NULL);
 }
 
 /*  time_split_units()
@@ -1550,13 +1555,14 @@ int toggle_sleeptimer(void)
     return 0;
 }
 
-void talk_sleeptimer(void)
+void talk_sleeptimer(int custom_duration)
 {
-    int seconds = get_sleep_timer();
+    int seconds = custom_duration < 0 ? get_sleep_timer() : custom_duration*60;
     long talk_ids[] = {
-        seconds ? LANG_SLEEP_TIMER_CANCEL_CURRENT
-            : LANG_SLEEP_TIMER_START_CURRENT,
+        custom_duration >= 0 ? LANG_SLEEP_TIMER :
+        (seconds ? LANG_SLEEP_TIMER_CANCEL_CURRENT : LANG_SLEEP_TIMER_START_CURRENT),
         VOICE_PAUSE,
+        custom_duration == 0 ? LANG_OFF :
         (seconds ? seconds_to_min(seconds)
             : global_settings.sleeptimer_duration) | UNIT_MIN << UNIT_SHIFT,
         TALK_FINAL_ID
@@ -1570,7 +1576,7 @@ void talk_timedate(void)
     struct tm *tm = get_time();
     if (!global_settings.talk_menu)
         return;
-    talk_id(VOICE_CURRENT_TIME, false);
+    talk_id(LANG_CURRENT_TIME, false);
     if (valid_time(tm))
     {
         talk_time(tm, true);

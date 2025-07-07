@@ -550,6 +550,17 @@
 #define OSCILLOSCOPE_VOL_UP         BUTTON_VOL_UP
 #define OSCILLOSCOPE_VOL_DOWN       BUTTON_VOL_DOWN
 
+#elif CONFIG_KEYPAD == MA_PAD
+#define OSCILLOSCOPE_QUIT           (BUTTON_BACK|BUTTON_REPEAT)
+#define OSCILLOSCOPE_DRAWMODE       BUTTON_MENU
+#define OSCILLOSCOPE_ADVMODE        (BUTTON_MENU|BUTTON_REPEAT)
+#define OSCILLOSCOPE_ORIENTATION    BUTTON_BACK
+#define OSCILLOSCOPE_PAUSE          BUTTON_PLAY
+#define OSCILLOSCOPE_SPEED_UP       BUTTON_RIGHT
+#define OSCILLOSCOPE_SPEED_DOWN     BUTTON_LEFT
+#define OSCILLOSCOPE_VOL_UP         BUTTON_UP
+#define OSCILLOSCOPE_VOL_DOWN       BUTTON_DOWN
+
 #elif CONFIG_KEYPAD == SHANLING_Q1_PAD
 /* use touchscreen */
 
@@ -2102,13 +2113,13 @@ enum plugin_status plugin_start(const void* parameter)
             case OSCILLOSCOPE_VOL_UP:
             case OSCILLOSCOPE_VOL_UP | BUTTON_REPEAT:
             {
-                int vol = rb->global_settings->volume;
+                int vol = rb->global_status->volume;
 
                 if (vol < rb->sound_max(SOUND_VOLUME))
                 {
                     vol++;
                     rb->sound_set(SOUND_VOLUME, vol);
-                    rb->global_settings->volume = vol;
+                    rb->global_status->volume = vol;
                 }
 
                 osc_popupmsg(OSC_MSG_VOLUME, vol);
@@ -2118,13 +2129,13 @@ enum plugin_status plugin_start(const void* parameter)
             case OSCILLOSCOPE_VOL_DOWN:
             case OSCILLOSCOPE_VOL_DOWN | BUTTON_REPEAT:
             {
-                int vol = rb->global_settings->volume;
+                int vol = rb->global_status->volume;
 
                 if (vol > rb->sound_min(SOUND_VOLUME))
                 {
                     vol--;
                     rb->sound_set(SOUND_VOLUME, vol);
-                    rb->global_settings->volume = vol;
+                    rb->global_status->volume = vol;
                 }
 
                 osc_popupmsg(OSC_MSG_VOLUME, vol);

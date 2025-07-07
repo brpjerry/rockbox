@@ -143,7 +143,7 @@
 #define BATTERY_CAPACITY_MIN     600 /* min. capacity selectable */
 #define BATTERY_CAPACITY_MAX     900 /* max. capacity selectable */
 #define BATTERY_CAPACITY_INC      20 /* capacity increment */
-#define BATTERY_TYPES_COUNT        1 /* only one type */
+
 
 #define CONFIG_BATTERY_MEASURE VOLTAGE_MEASURE
 
@@ -205,11 +205,9 @@
 
 #define ICODE_ATTR_TREMOR_NOT_MDCT
 
-/* DMA is used only for reading on PP502x because although reads are ~8x faster
- * writes appear to be ~25% slower.
- */
-/* TODO: it does not work - it hangs the player */
-/* #define HAVE_ATA_DMA */
+#ifndef BOOTLOADER
+#define HAVE_ATA_DMA
+#endif
 
 /* Define this if a programmable hotkey is mapped */
 #define HAVE_HOTKEY

@@ -138,7 +138,7 @@
 #define BATTERY_CAPACITY_MIN     600 /* min. capacity selectable */
 #define BATTERY_CAPACITY_MAX     700 /* max. capacity selectable */
 #define BATTERY_CAPACITY_INC       0 /* capacity increment */
-#define BATTERY_TYPES_COUNT        1 /* only one type */
+
 
 #define CONFIG_BATTERY_MEASURE VOLTAGE_MEASURE
 
@@ -200,10 +200,6 @@
 
 #define ICODE_ATTR_TREMOR_NOT_MDCT
 
-
-/* DMA is used only for reading on PP502x because although reads are ~8x faster
- * writes appear to be ~25% slower.
- */
 #ifndef BOOTLOADER
 #define HAVE_ATA_DMA
 #endif

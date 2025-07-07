@@ -8,7 +8,6 @@
  * $Id$
  *
  * Copyright (C) 2002 by Stuart Martin
- * RTC config saving code (C) 2002 by hessu@hes.iki.fi
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -79,6 +78,17 @@
 
 struct user_settings global_settings;
 struct system_status global_status;
+static uint32_t user_settings_crc;
+static long next_status_update_tick;
+static long lasttime = 0;
+
+/* flush system_status more often for spinning harddisks as we may not be able
+ * to spin up at shutdown in order to save so keep the gap minimal */
+#if (CONFIG_STORAGE & STORAGE_ATA)
+#define SYSTEM_STATUS_UPDATE_TICKS (HZ * 60 * 5) /* flush every 5 minutes */
+#else
+#define SYSTEM_STATUS_UPDATE_TICKS (HZ * 60 * 15) /* flush every 15 minutes */
+#endif
 
 #include "dsp_proc_settings.h"
 #include "playback.h"
@@ -86,11 +96,6 @@ struct system_status global_status;
 #include "enc_config.h"
 #endif
 #include "pcm_sampr.h"
-
-#define NVRAM_DATA_START 8
-#define NVRAM_BLOCK_SIZE (sizeof(struct system_status) + NVRAM_DATA_START)
-
-#define MAX_LINES 10
 
 #ifdef HAVE_REMOTE_LCD
 #include "lcd-remote.h"
@@ -103,14 +108,16 @@ struct system_status global_status;
 
 #ifdef ROCKBOX_NO_TEMP_SETTINGS_FILE /* Overwrites same file each time */
 #define CONFIGFILE_TEMP CONFIGFILE
-#define NVRAM_FILE_TEMP NVRAM_FILE
+#define RESUMEFILE_TEMP RESUMEFILE
 #define rename_temp_file(a,b,c)
 #else /* creates temp files on save, renames next load, saves old file if desired */
 #define CONFIGFILE_TEMP CONFIGFILE".new"
-#define NVRAM_FILE_TEMP NVRAM_FILE".new"
+#define RESUMEFILE_TEMP RESUMEFILE".new"
 
 #ifdef LOGF_ENABLE
 static char *debug_get_flags(uint32_t flags);
+#undef DEBUGF /* allow DEBUGF or logf not both */
+#define DEBUGF(...) do { } while(0)
 #endif
 static void debug_available_settings(void);
 
@@ -129,133 +136,74 @@ static void rename_temp_file(const char *tempfile,
         rename(tempfile, file);
     }
 }
-#endif
+#endif /* ndef ROCKBOX_NO_TEMP_SETTINGS_FILE */
 
-long lasttime = 0;
-
-/** NVRAM stuff, if the target doesnt have NVRAM it is saved in ROCKBOX_DIR /nvram.bin **/
-/* NVRAM is set out as
- *
- * [0]   'R'
- * [1]   'b'
- * [2]   version
- * [3]   stored variable count
- * [4-7] crc32 checksum in host endian order
- * [8+]  data
- */
-
-static unsigned int nvram_crc(char *buf, int max_len)
+const char* setting_get_cfgvals(const struct settings_list *setting)
 {
-    return crc_32(&buf[NVRAM_DATA_START], max_len - NVRAM_DATA_START - 1, 0xffffffff);
+    if ((setting->flags & F_TABLE_SETTING) == F_TABLE_SETTING)
+        return setting->table_setting->cfg_vals;
+    else if ((setting->flags & F_CHOICE_SETTING) == F_CHOICE_SETTING)
+        return setting->choice_setting->cfg_vals;
+    else if ((setting->flags & F_BOOL_SETTING) == F_BOOL_SETTING)
+    {
+        logf("Setting: %s", setting->cfg_name);
+        return setting->bool_setting->cfg_vals;
+    }
+    else if ((setting->flags & F_HAS_CFGVALS) == F_HAS_CFGVALS)
+        return setting->cfg_vals;
+    return NULL;
 }
 
-static void read_nvram_data(void)
+/* calculates and stores crc of settings, returns true if settings have changed */
+static bool settings_crc_changed(void)
 {
-    rename_temp_file(NVRAM_FILE_TEMP, NVRAM_FILE, NVRAM_FILE".old");
-
-    int fd = open(NVRAM_FILE, O_RDONLY);
-    if (fd < 0)
-        return;
-
-    char buf[NVRAM_BLOCK_SIZE];
-    memset(buf, 0, sizeof(buf));
-
-    ssize_t bytes = read(fd, buf, sizeof(buf));
-    close(fd);
-
-    if (bytes < 8) /* min is 8 bytes,magic, ver, vars, crc32 */
-        return;
-
-    /* check magic, version */
-    if (buf[0] != 'R' || buf[1] != 'b' || buf[2] != NVRAM_CONFIG_VERSION)
-        return;
-
-    /* check crc32 */
-    unsigned int crc32 = nvram_crc(buf, sizeof(buf));
-    if (crc32 != load_h32(&buf[4]))
-        return;
-
-    /* all good, so read in the settings */
-    int var_count = buf[3];
-    size_t buf_pos = NVRAM_DATA_START;
-    for(int i = 0; i < nb_settings; i++)
+    char value[MAX_PATH];
+    uint32_t custom_crc = 0xFFFFFFFF;
+    for(int i=0; i<nb_settings; i++)
     {
         const struct settings_list *setting = &settings[i];
-        int nvram_bytes = (setting->flags & F_NVRAM_BYTES_MASK) >> F_NVRAM_MASK_SHIFT;
-        if (nvram_bytes)
-        {
-            if (var_count > 0 && buf_pos < (size_t)bytes)
-            {
-                memcpy(setting->setting, &buf[buf_pos], nvram_bytes);
-                buf_pos += nvram_bytes;
-                var_count--;
-            }
-            else /* should only happen when new items are added to the end */
-            {
-                memcpy(setting->setting, &setting->default_val, nvram_bytes);
-            }
-        }
+        if (!(setting->flags & F_CUSTOM_SETTING))
+            continue;
+        cfg_to_string(setting, value, sizeof(value));
+        custom_crc = crc_32(value, strlen(value), custom_crc);
     }
-}
 
-static void write_nvram_data(void)
-{
-    char buf[NVRAM_BLOCK_SIZE];
-    memset(buf, 0, sizeof(buf));
-
-    /* magic, version */
-    buf[0] = 'R';
-    buf[1] = 'b';
-    buf[2] = NVRAM_CONFIG_VERSION;
-
-    size_t buf_pos = NVRAM_DATA_START;
-    int var_count = 0;
-    for(int i = 0; i < nb_settings && buf_pos < sizeof(buf); i++)
+    uint32_t crc = crc_32(&global_settings, sizeof(global_settings), custom_crc);
+    if (crc != user_settings_crc)
     {
-        const struct settings_list *setting = &settings[i];
-        int nvram_bytes = (setting->flags & F_NVRAM_BYTES_MASK) >> F_NVRAM_MASK_SHIFT;
-        if (nvram_bytes)
-        {
-            memcpy(&buf[buf_pos], setting->setting, nvram_bytes);
-            buf_pos += nvram_bytes;
-            var_count++;
-        }
+        user_settings_crc = crc;
+        return true;
     }
 
-    /* count and crc32 */
-    buf[3] = var_count;
-    store_h32(&buf[4], nvram_crc(buf, sizeof(buf)));
-
-    int fd = open(NVRAM_FILE_TEMP,O_CREAT|O_TRUNC|O_WRONLY, 0666);
-    if (fd < 0)
-        return;
-
-    write(fd, buf, sizeof(buf));
-    close(fd);
+    return false;
 }
 
 /** Reading from a config file **/
 /*
- * load settings from disk or RTC RAM
+ * load settings from disk
  */
-void settings_load(int which)
+void settings_load(void)
 {
     logf("\r\n%s()\r\n", __func__);
     debug_available_settings();
 
-    if (which & SETTINGS_RTC)
-        read_nvram_data();
-    if (which & SETTINGS_HD)
-    {
-        rename_temp_file(CONFIGFILE_TEMP, CONFIGFILE, CONFIGFILE".old");
-        settings_load_config(CONFIGFILE, false);
-        settings_load_config(FIXEDSETTINGSFILE, false);
-    }
+    /* make temp files current make current files .old */
+    rename_temp_file(RESUMEFILE_TEMP, RESUMEFILE, RESUMEFILE".old");
+    rename_temp_file(CONFIGFILE_TEMP, CONFIGFILE, CONFIGFILE".old");
+
+    settings_load_config(CONFIGFILE, false); /* load user_settings items */
+    settings_load_config(RESUMEFILE, false); /* load system_status items */
+
+    /* fixed settings file has final say on user_settings AND system_status items */
+    settings_load_config(FIXEDSETTINGSFILE, false);
+
+    /* set initial CRC value - settings_save checks, if changed writes to disk */
+    settings_crc_changed();
 }
 
 bool cfg_string_to_int(const struct settings_list *setting, int* out, const char* str)
 {
-    const char* ptr = setting->cfg_vals;
+    const char* ptr = setting_get_cfgvals(setting);
     size_t len = strlen(str);
     int index = 0;
 
@@ -333,14 +281,114 @@ bool copy_filename_setting(char *buf, size_t buflen, const char *input,
     return true;
 }
 
+void string_to_cfg(const char *name, char* value, bool *theme_changed)
+{
+    const struct settings_list *setting = find_setting_by_cfgname(name);
+    if (!setting)
+        return;
+
+    uint32_t flags = setting->flags;
+
+    if (flags & F_THEMESETTING)
+        *theme_changed = true;
+
+    switch (flags & F_T_MASK)
+    {
+    case F_T_CUSTOM:
+        setting->custom_setting->load_from_cfg(setting->setting, value);
+        logf("Val: %s\r\n",value);
+        break;
+    case F_T_INT:
+    case F_T_UINT:
+#ifdef HAVE_LCD_COLOR
+        if (flags & F_RGB)
+        {
+            hex_to_rgb(value, (int*)setting->setting);
+            logf("Val: %s\r\n", value);
+        }
+        else
+#endif
+            if (setting_get_cfgvals(setting) == NULL)
+            {
+                *(int*)setting->setting = atoi(value);
+                logf("Val: %s\r\n",value);
+            }
+            else
+            {
+                int temp, *v = (int*)setting->setting;
+                bool found = cfg_string_to_int(setting, &temp, value);
+                if (found)
+                {
+                    if (flags & F_TABLE_SETTING)
+                        *v = setting->table_setting->values[temp];
+                    else
+                        *v = temp;
+                    logf("Val: %d\r\n", *v);
+                }
+                else if (flags & F_ALLOW_ARBITRARY_VALS)
+                {
+                    *v = atoi(value);
+                    logf("Val: %s = %d\r\n", value, *v);
+                }
+                else if (flags & F_TABLE_SETTING)
+                {
+                    const struct table_setting *info = setting->table_setting;
+                    temp = atoi(value);
+                    *v = setting->default_val.int_;
+                    if (info->values)
+                    {
+                        for(int i = 0; i < info->count; i++)
+                        {
+                            if (info->values[i] == temp)
+                            {
+                                *v = temp;
+                                break;
+                            }
+                        }
+                    }
+                    logf("Val: %s", *v == temp ? "Found":"Error Not Found");
+                    logf("Val: %s = %d\r\n", value, *v);
+                }
+
+                else
+                {
+                    logf("Error: %s: Not Found! [%s]\r\n",
+                                      setting->cfg_name, value);
+                }
+            }
+        break;
+    case F_T_BOOL:
+    {
+        int temp;
+        if (cfg_string_to_int(setting, &temp, value))
+        {
+            *(bool*)setting->setting = !!temp;
+            logf("Val: %s\r\n", value);
+        }
+        if (setting->bool_setting->option_callback)
+        {
+            setting->bool_setting->option_callback(!!temp);
+        }
+        break;
+    }
+    /* these can be plain text, filenames, or dirnames */
+    case F_T_CHARPTR:
+    case F_T_UCHARPTR:
+    {
+        const struct filename_setting *fs = setting->filename_setting;
+        copy_filename_setting((char*)setting->setting,
+                              fs->max_len, value, fs);
+        logf("Val: %s\r\n", value);
+        break;
+    }
+    }
+}
+
 bool settings_load_config(const char* file, bool apply)
 {
     logf("%s()\r\n", __func__);
-    const struct settings_list *setting;
     int fd;
     char line[128];
-    char* name;
-    char* value;
     bool theme_changed = false;
 
     fd = open_utf8(file, O_RDONLY);
@@ -349,106 +397,10 @@ bool settings_load_config(const char* file, bool apply)
 
     while (read_line(fd, line, sizeof line) > 0)
     {
+        char *name, *value;
         if (!settings_parseline(line, &name, &value))
             continue;
-
-        setting = find_setting_by_cfgname(name);
-        if (!setting)
-            continue;
-
-        if (setting->flags & F_THEMESETTING)
-            theme_changed = true;
-
-        switch (setting->flags & F_T_MASK)
-        {
-        case F_T_CUSTOM:
-            setting->custom_setting->load_from_cfg(setting->setting, value);
-            logf("Val: %s\r\n",value);
-            break;
-        case F_T_INT:
-        case F_T_UINT:
-#ifdef HAVE_LCD_COLOR
-            if (setting->flags & F_RGB)
-            {
-                hex_to_rgb(value, (int*)setting->setting);
-                logf("Val: %s\r\n", value);
-            }
-            else
-#endif
-                if (setting->cfg_vals == NULL)
-                {
-                    *(int*)setting->setting = atoi(value);
-                    logf("Val: %s\r\n",value);
-                }
-                else
-                {
-                    int temp, *v = (int*)setting->setting;
-                    bool found = cfg_string_to_int(setting, &temp, value);
-                    if (found)
-                    {
-                        if (setting->flags & F_TABLE_SETTING)
-                            *v = setting->table_setting->values[temp];
-                        else
-                            *v = temp;
-                        logf("Val: %d\r\n", *v);
-                    }
-                    else if (setting->flags & F_ALLOW_ARBITRARY_VALS)
-                    {
-                        *v = atoi(value);
-                        logf("Val: %s = %d\r\n", value, *v);
-                    }
-                    else if (setting->flags & F_TABLE_SETTING)
-                    {
-                        const struct table_setting *info = setting->table_setting;
-                        temp = atoi(value);
-                        *v = setting->default_val.int_;
-                        if (info->values)
-                        {
-                            for(int i = 0; i < info->count; i++)
-                            {
-                                if (info->values[i] == temp)
-                                {
-                                    *v = temp;
-                                    break;
-                                }
-                            }
-                        }
-                        logf("Val: %s", *v == temp ? "Found":"Error Not Found");
-                        logf("Val: %s = %d\r\n", value, *v);
-                    }
-
-                    else
-                    {
-                        logf("Error: %s: Not Found! [%s]\r\n",
-                                          setting->cfg_name, value);
-                    }
-                }
-            break;
-        case F_T_BOOL:
-        {
-            int temp;
-            if (cfg_string_to_int(setting, &temp, value))
-            {
-                *(bool*)setting->setting = !!temp;
-                logf("Val: %s\r\n", value);
-            }
-            if (setting->bool_setting->option_callback)
-            {
-                setting->bool_setting->option_callback(!!temp);
-            }
-            break;
-        }
-        /* these can be plain text, filenames, or dirnames */
-        case F_T_CHARPTR:
-        case F_T_UCHARPTR:
-        {
-            const struct filename_setting *fs = setting->filename_setting;
-            copy_filename_setting((char*)setting->setting,
-                                  fs->max_len, value, fs);
-            logf("Val: %s\r\n", value);
-            break;
-        }
-        }
+        string_to_cfg(name, value, &theme_changed);
     } /* while(...) */
 
     close(fd);
@@ -466,7 +418,7 @@ bool settings_load_config(const char* file, bool apply)
 
 bool cfg_int_to_string(const struct settings_list *setting, int val, char* buf, int buf_len)
 {
-    const char* ptr = setting->cfg_vals;
+    const char* ptr = setting_get_cfgvals(setting);
     const int *values = NULL;
     int index = 0;
 
@@ -517,19 +469,17 @@ void cfg_to_string(const struct settings_list *setting, char* buf, int buf_len)
                             (int)RGB_UNPACK_RED(colour),
                             (int)RGB_UNPACK_GREEN(colour),
                             (int)RGB_UNPACK_BLUE(colour));
+                break; /* we got a value */
             }
             else
 #endif
-            if (setting->cfg_vals == NULL)
+            if (setting_get_cfgvals(setting) != NULL && cfg_int_to_string(
+                setting, *(int*)setting->setting, buf, buf_len))
             {
-                snprintf(buf, buf_len, "%d", *(int*)setting->setting);
+                break; /* we got a value */
             }
-            else
-            {
-                if (!cfg_int_to_string(setting, *(int*)setting->setting,
-                                       buf, buf_len))
-                    snprintf(buf, buf_len, "%d", *(int*)setting->setting);
-            }
+
+            itoa_buf(buf, buf_len, *(int*)setting->setting);
             break;
         case F_T_BOOL:
             cfg_int_to_string(setting, *(bool*)setting->setting, buf, buf_len);
@@ -583,6 +533,11 @@ static bool is_changed(const struct settings_list *setting)
                 sound_default(setting->sound_setting->setting))
                 return false;
         }
+        else if (setting->flags & F_RESUMESETTING)
+        {
+            /* exclude resume settings they will get saved to '.resume.cfg' */
+            return false;
+        }
         else if (*(int*)setting->setting == setting->default_val.int_)
             return false;
         break;
@@ -608,8 +563,13 @@ static bool settings_write_config(const char* filename, int options)
     fd = open(filename,O_CREAT|O_TRUNC|O_WRONLY, 0666);
     if (fd < 0)
         return false;
-    fdprintf(fd, "# .cfg file created by rockbox %s - "
+
+    if (options != SETTINGS_SAVE_RESUMEINFO)
+    {
+        fdprintf(fd, "# .cfg file created by rockbox %s - "
                  "http://www.rockbox.org\r\n\r\n", rbversion);
+    }
+
     for(i=0; i<nb_settings; i++)
     {
         const struct settings_list *setting = &settings[i];
@@ -640,6 +600,18 @@ static bool settings_write_config(const char* filename, int options)
                 if (!(setting->flags & F_EQSETTING))
                     continue;
                 break;
+            case SETTINGS_SAVE_RESUMEINFO:
+                if (!(setting->flags & F_RESUMESETTING))
+                    continue;
+                break;
+            case SETTINGS_SAVE_ALL:
+            {
+                /*only save sound settings (volume) from F_RESUMESETTING items */
+                uint32_t exclude_flag = (F_RESUMESETTING|F_SOUNDSETTING);
+                if ((setting->flags & exclude_flag) == F_RESUMESETTING)
+                    continue;
+                break;
+            }
         }
         cfg_to_string(setting, value, MAX_PATH);
         logf("Written: '%s: %s'\r\n",setting->cfg_name, value);
@@ -652,25 +624,52 @@ static bool settings_write_config(const char* filename, int options)
 
 static void flush_global_status_callback(void)
 {
-    write_nvram_data();
+    if (TIME_AFTER(current_tick, next_status_update_tick))
+    {
+        next_status_update_tick = current_tick + SYSTEM_STATUS_UPDATE_TICKS;
+        update_runtime();
+
+        DEBUGF("Writing system_status to disk\n");
+        logf("Writing system_status to disk");
+
+        settings_write_config(RESUMEFILE_TEMP, SETTINGS_SAVE_RESUMEINFO);
+    }
 }
 
 static void flush_config_block_callback(void)
 {
-    write_nvram_data();
-    settings_write_config(CONFIGFILE_TEMP, SETTINGS_SAVE_CHANGED);
+    if (settings_crc_changed())
+    {
+        DEBUGF("Writing changed user_settings to disk\n");
+        logf("Writing changed user_settings to disk");
+
+        if (!settings_write_config(CONFIGFILE_TEMP, SETTINGS_SAVE_CHANGED))
+        {
+            user_settings_crc = 0;
+            DEBUGF("Error failed to write settings to disk\n");
+            logf("Error failed to write settings to disk");
+        }
+    }
+#ifdef LOGF_ENABLE
+    else
+        logf("No changes to user_settings");
+#endif
+    /* remove any outstanding status_cb and call it unconditionally */
+    next_status_update_tick = current_tick - 1;
+    unregister_storage_idle_func(flush_global_status_callback, true);
 }
 
 void reset_runtime(void)
 {
+    update_runtime(); /* in case this is > topruntimetime */
     lasttime = current_tick;
     global_status.runtime = 0;
 }
 
 /*
- * persist all runtime user settings to disk or RTC RAM
+ * update runtime and if greater topruntime as well
  */
-static void update_runtime(void)
+void update_runtime(void)
 {
     int elapsed_secs;
 
@@ -682,27 +681,27 @@ static void update_runtime(void)
         global_status.topruntime = global_status.runtime;
 }
 
-void status_save(void)
+void status_save(bool force)
 {
-    update_runtime();
-    register_storage_idle_func(flush_global_status_callback);
+    if(force)
+    {
+        settings_save(); /* will force a status flush */
+    }
+    else
+        register_storage_idle_func(flush_global_status_callback);
 }
 
 int settings_save(void)
 {
     logf("%s", __func__);
-    update_runtime();
+    /* remove any oustanding status_cb we will call it in the config_block_cb */
+    unregister_storage_idle_func(flush_global_status_callback, false);
     register_storage_idle_func(flush_config_block_callback);
     return 0;
 }
 
 bool settings_save_config(int options)
 {
-    /* if we have outstanding temp files it would be a good idea to flush
-     them before the user starts saving things */
-    rename_temp_file(NVRAM_FILE_TEMP, NVRAM_FILE, NULL); /* dont overwrite .old */
-    rename_temp_file(CONFIGFILE_TEMP, CONFIGFILE, NULL); /* files from last boot */
-
     char filename[MAX_PATH];
     const char *folder, *namebase;
     switch (options)
@@ -789,7 +788,7 @@ void sound_settings_apply(void)
 #endif
     sound_set(SOUND_BALANCE, global_settings.balance);
 #ifndef PLATFORM_HAS_VOLUME_CHANGE
-    sound_set(SOUND_VOLUME, global_settings.volume);
+    sound_set(SOUND_VOLUME, global_status.volume);
 #endif
     sound_set(SOUND_CHANNELS, global_settings.channel_config);
     sound_set(SOUND_STEREO_WIDTH, global_settings.stereo_width);
@@ -903,10 +902,6 @@ void settings_apply(bool read_disk)
 #if BATTERY_CAPACITY_INC > 0
     /* only call if it's really exchangable */
     set_battery_capacity(global_settings.battery_capacity);
-#endif
-
-#if BATTERY_TYPES_COUNT > 1
-    set_battery_type(global_settings.battery_type);
 #endif
 
 #ifdef HAVE_LCD_INVERT
@@ -1106,7 +1101,6 @@ void settings_apply(bool read_disk)
     CHART("<viewportmanager_theme_changed");
 }
 
-
 /*
  * reset all settings to their default value
  */
@@ -1176,7 +1170,10 @@ const struct settings_list* find_setting_by_cfgname(const char* name)
         const struct settings_list *setting = &settings[i];
         if (setting->cfg_name && !strcasecmp(setting->cfg_name, name))
         {
-            logf("Found, flags: %s", debug_get_flags(settings[i].flags));
+#ifdef LOGF_ENABLE
+            name = debug_get_flags(settings[i].flags);
+            logf("Found, %s", name);
+#endif
             return setting;
         }
     }
@@ -1249,9 +1246,8 @@ bool set_int_ex(const unsigned char* string,
     item.int_setting = &data;
     item.flags = F_INT_SETTING|F_T_INT;
     item.lang_id = -1;
-    item.cfg_vals = (char*)string;
     item.setting = (void *)variable;
-    return option_screen(&item, NULL, false, NULL);
+    return option_screen(&item, NULL, false, string);
 }
 
 
@@ -1288,13 +1284,12 @@ bool set_option(const char* string, const void* variable, enum optiontype type,
     item.int_setting = &data;
     item.flags = F_INT_SETTING|F_T_INT;
     item.lang_id = -1;
-    item.cfg_vals = (char*)string;
     item.setting = &temp;
     if (type == RB_BOOL)
         temp = *(bool*)variable? 1: 0;
     else
         temp = *(int*)variable;
-    if (!option_screen(&item, NULL, false, NULL))
+    if (!option_screen(&item, NULL, false, string))
     {
         if (type == RB_BOOL)
 
@@ -1310,8 +1305,9 @@ bool set_option(const char* string, const void* variable, enum optiontype type,
  * Takes filename, removes the directory and the extension,
  * and then copies the basename into setting, unless the basename exceeds maxlen
  **/
-void set_file(const char* filename, char* setting, const int maxlen)
+void set_file(const char* filename, char* setting)
 {
+    const int maxlen = MAX_FILENAME;
     const char* fptr = strrchr(filename,'/');
     const char* extptr;
     int len;
@@ -1331,9 +1327,12 @@ void set_file(const char* filename, char* setting, const int maxlen)
 
     len = strlen(fptr) - extlen + 1;
 
-    /* error if filename isn't in ROCKBOX_DIR */
-    if (len > maxlen)
+    /* error later if filename isn't in ROCKBOX_DIR */
+    if (len > maxlen || !file_exists(filename))
+    {
+        DEBUGF("%s Error %s\n", __func__, filename);
         return;
+    }
 
     strmemccpy(setting, fptr, len);
     settings_save();
@@ -1342,103 +1341,113 @@ void set_file(const char* filename, char* setting, const int maxlen)
 #ifdef LOGF_ENABLE
 static char *debug_get_flags(uint32_t flags)
 {
-    static char buf[256] = {0};
+    static char buf[256];
     uint32_t ftype = flags & F_T_MASK; /* the variable type for the setting */
     flags &= ~F_T_MASK;
+    uint32_t flags_rem = flags;
     switch (ftype)
     {
         case F_T_CUSTOM:
-            strlcpy(buf, "[Type CUSTOM] ", sizeof(buf));
+            strlcpy(buf, "Type: [CUSTOM]   Flags: ", sizeof(buf));
             break;
         case F_T_INT:
-            strlcpy(buf, "[Type INT] ", sizeof(buf));
+            strlcpy(buf, "Type: [INT]      Flags: ", sizeof(buf));
             break;
         case F_T_UINT:
-            strlcpy(buf, "[Type UINT] ", sizeof(buf));
+            strlcpy(buf, "Type: [UINT]     Flags: ", sizeof(buf));
             break;
         case F_T_BOOL:
-            strlcpy(buf, "[Type BOOL] ", sizeof(buf));
+            strlcpy(buf, "Type: [BOOL]     Flags: ", sizeof(buf));
             break;
         case F_T_CHARPTR:
-            strlcpy(buf, "[Type CHARPTR] ", sizeof(buf));
+            strlcpy(buf, "Type: [CHARPTR]  Flags: ", sizeof(buf));
             break;
         case F_T_UCHARPTR:
-            strlcpy(buf, "[Type UCHARPTR] ", sizeof(buf));
+            strlcpy(buf, "Type: [UCHARPTR] Flags: ", sizeof(buf));
+            break;
+        default:
+            snprintf(buf, sizeof(buf),
+                     "Type: [!UNKNOWN TYPE! (0x%lx)] Flags: ", (long)ftype);
             break;
     }
 
 #define SETTINGFLAGS(n)                 \
-        if(flags & n) {                 \
-           flags &= ~n;                 \
+        if(flags_rem & n) {             \
+           flags_rem &= ~n;             \
     strlcat(buf, "["#n"]", sizeof(buf));}
 
-    SETTINGFLAGS(F_T_SOUND);
-    SETTINGFLAGS(F_BOOL_SETTING);
-    SETTINGFLAGS(F_RGB);
-    SETTINGFLAGS(F_FILENAME);
-    SETTINGFLAGS(F_INT_SETTING);
-    SETTINGFLAGS(F_CHOICE_SETTING);
-    SETTINGFLAGS(F_CHOICETALKS);
-    SETTINGFLAGS(F_TABLE_SETTING);
-    SETTINGFLAGS(F_ALLOW_ARBITRARY_VALS);
-    SETTINGFLAGS(F_CB_ON_SELECT_ONLY);
-    SETTINGFLAGS(F_CB_ONLY_IF_CHANGED);
-    SETTINGFLAGS(F_MIN_ISFUNC);
-    SETTINGFLAGS(F_MAX_ISFUNC);
-    SETTINGFLAGS(F_DEF_ISFUNC);
-    SETTINGFLAGS(F_CUSTOM_SETTING);
-    SETTINGFLAGS(F_TIME_SETTING);
+    SETTINGFLAGS(F_RESUMESETTING);
     SETTINGFLAGS(F_THEMESETTING);
     SETTINGFLAGS(F_RECSETTING);
     SETTINGFLAGS(F_EQSETTING);
     SETTINGFLAGS(F_SOUNDSETTING);
+    SETTINGFLAGS(F_NEEDAPPLY);
+    SETTINGFLAGS(F_CHOICE_SETTING);
+    SETTINGFLAGS(F_CHOICETALKS);
+    SETTINGFLAGS(F_TABLE_SETTING);
+    SETTINGFLAGS(F_CUSTOM_SETTING);
+    SETTINGFLAGS(F_TIME_SETTING);
+
+    SETTINGFLAGS(F_FILENAME);
+    SETTINGFLAGS(F_INT_SETTING);
+    SETTINGFLAGS(F_T_SOUND);
+    SETTINGFLAGS(F_RGB);
+    SETTINGFLAGS(F_BOOL_SETTING);
+
+    SETTINGFLAGS(F_MIN_ISFUNC);
+    SETTINGFLAGS(F_MAX_ISFUNC);
+    SETTINGFLAGS(F_DEF_ISFUNC);
+    SETTINGFLAGS(F_ALLOW_ARBITRARY_VALS);
+    SETTINGFLAGS(F_CB_ON_SELECT_ONLY);
+    SETTINGFLAGS(F_CB_ONLY_IF_CHANGED);
     SETTINGFLAGS(F_TEMPVAR);
     SETTINGFLAGS(F_PADTITLE);
     SETTINGFLAGS(F_NO_WRAP);
     SETTINGFLAGS(F_BANFROMQS);
     SETTINGFLAGS(F_DEPRECATED);
+
+    SETTINGFLAGS(F_HAS_CFGVALS);
 #undef SETTINGFLAGS
 
-    if (flags & F_NVRAM_BYTES_MASK)
-    {
-        flags &= ~F_NVRAM_BYTES_MASK;
-        strlcat(buf, "[NVRAM]", sizeof(buf));
-    }
     /* anything left is unknown */
-    if (flags)
+    if (flags_rem)
     {
-        strlcat(buf, "[UNKNOWN FLAGS]", sizeof(buf));
+        strlcat(buf, "[!UNKNOWN FLAGS!]", sizeof(buf));
         size_t len = strlen(buf);
         if (len < sizeof(buf))
-            snprintf(buf + len, sizeof(buf) - len - 1, "[%x]", flags);
+            snprintf(buf + len, sizeof(buf) - len - 1, "[0x%lx]", flags_rem);
     }
+    /* no flags set */
+    if (flags == 0)
+        strlcat(buf, "[0x0]", sizeof(buf));
     return buf;
 }
 #endif
 static void debug_available_settings(void)
 {
 #if defined(DEBUG_AVAIL_SETTINGS) && defined(LOGF_ENABLE)
+    static char namebuf[128];
+
     logf("\r\nAvailable Settings:");
     for (int i=0; i<nb_settings; i++)
     {
         uint32_t flags = settings[i].flags;
         const char *name;
         if (settings[i].cfg_name)
-            name = settings[i].cfg_name;
+        {
+            snprintf(namebuf, sizeof(namebuf), "'%s'", settings[i].cfg_name);
+            name = namebuf;
+        }
         else if (settings[i].RESERVED == NULL)
         {
-            name = "SYS (NVRAM?)";
-            if (flags & F_NVRAM_BYTES_MASK)
-            {
-                flags &= ~F_NVRAM_BYTES_MASK;
-                flags |= 0x80000; /* unused by other flags */
-            }
+            name = "SYS";
         }
         else
         {
             name = "?? UNKNOWN NAME ?? ";
         }
-        logf("'%s' flags: %s",name, debug_get_flags(flags));
+
+        logf("%-45s %s",name, debug_get_flags(flags));
     }
     logf("End Available Settings\r\n");
 #endif

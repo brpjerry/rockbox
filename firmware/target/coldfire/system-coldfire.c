@@ -26,6 +26,11 @@
 #include "lcd.h"
 #include "font.h"
 
+#if __GNUC__ >= 9
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-attributes"
+#endif
+
 #define default_interrupt(name) \
   extern __attribute__((weak,alias("UIE"))) void name (void)
 
@@ -180,9 +185,7 @@ static void system_display_exception_info(unsigned long format,
     /* clear screen */
 #if LCD_DEPTH > 1
     lcd_set_backdrop(NULL);
-    lcd_set_drawmode(DRMODE_SOLID);
-    lcd_set_foreground(LCD_BLACK);
-    lcd_set_background(LCD_WHITE);
+    lcd_set_drawinfo(DRMODE_SOLID, LCD_BLACK, LCD_WHITE);
 #endif
     lcd_setfont(FONT_SYSFIXED);
     lcd_set_viewport(NULL);
